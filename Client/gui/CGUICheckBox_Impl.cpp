@@ -60,10 +60,13 @@ CGUICheckBox_Impl::~CGUICheckBox_Impl()
     DestroyElement();
 }
 
+// MTA stores the inverse of the checked state in CEGUI: in every skin the "unselected" image
+// (CheckboxNormal) is the one with the tick. The 0.8.7 skins keep those images, so keep the inversion
+// there too, otherwise every checkbox shows the opposite of its value.
 void CGUICheckBox_Impl::SetSelected(bool bChecked)
 {
 #ifdef MTA_USE_CEGUI_NEXT
-    reinterpret_cast<CEGUI::ToggleButton*>(m_pWindow)->setSelected(bChecked);
+    reinterpret_cast<CEGUI::ToggleButton*>(m_pWindow)->setSelected(!bChecked);
 #else
     reinterpret_cast<CEGUI::Checkbox*>(m_pWindow)->setSelected(!bChecked);
 #endif
@@ -72,7 +75,7 @@ void CGUICheckBox_Impl::SetSelected(bool bChecked)
 bool CGUICheckBox_Impl::GetSelected()
 {
 #ifdef MTA_USE_CEGUI_NEXT
-    return reinterpret_cast<CEGUI::ToggleButton*>(m_pWindow)->isSelected();
+    return !(reinterpret_cast<CEGUI::ToggleButton*>(m_pWindow)->isSelected());
 #else
     return !(reinterpret_cast<CEGUI::Checkbox*>(m_pWindow)->isSelected());
 #endif
