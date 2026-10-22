@@ -128,9 +128,12 @@ void Direct3D9RenderTarget<T>::updateMatrix() const
     const float w = d_area.getWidth();
     const float h = d_area.getHeight();
 
-    // We need this because we need to adapt to D3D's texel positioning
+    // We need this because we need to adapt to D3D's texel positioning: geometry must move half a pixel
+    // left and up. The view matrix below flips y (_22 = -1), so moving up needs a positive y offset; with
+    // -0.5 every pixel sampled halfway between two texture rows, which hid the last row of images (e.g. the
+    // bottom border line of frames and buttons).
     const float x_offset = -0.5f;
-    const float y_offset = -0.5f;
+    const float y_offset = 0.5f;
 
     // set up projection parameters
     const float fov = 0.523598776f; // 30 degrees
