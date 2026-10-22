@@ -269,6 +269,7 @@ void CGUI_Impl::SetSkin(const char* szName)
         {
             CEGUI::SchemeManager::getSingleton().destroy(m_CurrentSchemeName.c_str());
         }
+        UnloadModernSkin();
         CEGUI::WidgetLookManager::getSingleton().eraseAllWidgetLooks();
         CEGUI::ImageManager::getSingleton().destroyImageCollection("CGUI-Images", true);
         CEGUI::WindowFactoryManager::getSingleton().removeAllFalagardWindowMappings();
@@ -291,6 +292,9 @@ void CGUI_Impl::SetSkin(const char* szName)
     PopGuiWorkingDirectory();
 
 #ifdef MTA_USE_CEGUI_NEXT
+    // Load after the user skin, so the user skin is always complete even if this fails
+    LoadModernSkin();
+
     m_pDefaultGUIContext->getMouseCursor().setDefaultImage("CGUI-Images/MouseArrow");
     m_pDefaultGUIContext->getMouseCursor().setImage("CGUI-Images/MouseArrow");
     m_pDefaultGUIContext->getMouseCursor().invalidate();
@@ -332,6 +336,80 @@ void CGUI_Impl::SetSkin(const char* szName)
 
     // Disallow input routing to the GUI unless edit box has focus
     m_eInputMode = INPUTMODE_NO_BINDS_ON_EDIT;
+}
+
+#ifdef MTA_USE_CEGUI_NEXT
+// The modern skin is a second look that only MTA's own menus can opt into, so the main menu
+// can be restyled without touching the skin players picked or any script GUI. It is loaded
+// beside the user skin under its own names (CGUI/*Modern looks, CGUI-Modern imageset), so
+// nothing that refers to the user skin by name (e.g. guiSetProperty with CGUI-Images) changes.
+void CGUI_Impl::LoadModernSkin()
+{
+    m_bModernSkinLoaded = false;
+
+    PushGuiWorkingDirectory(CalcMTASAPath(PathJoin("MTA", "cgui", "modern")));
+    try
+    {
+        CEGUI::SchemeManager::getSingleton().createFromFile(CGUI_MODERN_SCHEME_FILE);
+        m_bModernSkinLoaded = true;
+    }
+    catch (const CEGUI::Exception& e)
+    {
+        // Not fatal: ResolveWindowType falls back to the user skin when the modern looks are missing
+        OutputDebugLine(SString("CGUI_Impl::LoadModernSkin failed: %s", e.getMessage().c_str()));
+    }
+    catch (...)
+    {
+        // Must not escape: CLocalGUI::SetSkin treats any exception as a broken user skin
+        OutputDebugLine("CGUI_Impl::LoadModernSkin failed with an unknown exception");
+    }
+    PopGuiWorkingDirectory();
+}
+
+void CGUI_Impl::UnloadModernSkin()
+{
+    CEGUI::SchemeManager& schemeManager = CEGUI::SchemeManager::getSingleton();
+    if (schemeManager.isDefined(CGUI_MODERN_SCHEME_NAME))
+        schemeManager.destroy(CGUI_MODERN_SCHEME_NAME);
+
+    CEGUI::ImageManager::getSingleton().destroyImageCollection(CGUI_MODERN_IMAGESET_NAME, true);
+    m_bModernSkinLoaded = false;
+}
+#endif
+
+void CGUI_Impl::SetModernSkinEnabled(bool bEnabled)
+{
+    m_bModernSkinEnabled = bEnabled;
+}
+
+bool CGUI_Impl::IsModernSkinEnabled() const
+{
+    return m_bModernSkinEnabled;
+}
+
+bool CGUI_Impl::IsScriptElement(CGUIElement* pElement)
+{
+    // Script GUI is always created under the script root (see CStaticFunctionDefinitions::GUICreate*)
+    for (CGUIElement* pCurrent = pElement; pCurrent; pCurrent = pCurrent->GetParent())
+    {
+        if (pCurrent == m_ScriptRoot)
+            return true;
+    }
+    return false;
+}
+
+CEGUI::String CGUI_Impl::ResolveWindowType(const char* szType, CGUIElement* pParent)
+{
+#ifdef MTA_USE_CEGUI_NEXT
+    // Script GUI must keep the user skin even if the flag is left on by mistake
+    if (!m_bModernSkinEnabled || !m_bModernSkinLoaded || IsScriptElement(pParent))
+        return szType;
+
+    CEGUI::String modernType = CEGUI::String(szType) + "Modern";
+    if (CEGUI::WindowFactoryManager::getSingleton().isFalagardMappedType(modernType))
+        return modernType;
+#endif
+    return szType;
 }
 
 void CGUI_Impl::SetBidiEnabled(bool bEnabled)
@@ -616,7 +694,8 @@ bool CGUI_Impl::GetGUIInputEnabled()
                 {
                     return (!pMultiLineEditBox->isReadOnly() && pMultiLineEditBox->hasInputFocus());
                 }
-                else if (activeWindow->getType() == CGUIWEBBROWSER_NAME)
+                // Also match the modern variant, see ResolveWindowType
+                else if (activeWindow->getType() == CGUIWEBBROWSER_NAME || activeWindow->getType() == CGUIWEBBROWSER_NAME "Modern")
                 {
                     auto pElement = reinterpret_cast<CGUIElement_Impl*>(activeWindow->getUserData());
                     if (pElement->GetType() == CGUI_WEBBROWSER)

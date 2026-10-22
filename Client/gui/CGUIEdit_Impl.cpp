@@ -22,7 +22,7 @@ CGUIEdit_Impl::CGUIEdit_Impl(CGUI_Impl* pGUI, CGUIElement* pParent, const char* 
     pGUI->GetUniqueName(szUnique);
 
     // Create the edit and set default settings
-    m_pWindow = pGUI->GetWindowManager()->createWindow(CGUIEDIT_NAME, szUnique);
+    m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(CGUIEDIT_NAME, pParent), szUnique);
     m_pWindow->setDestroyedByParent(false);
 #ifdef MTA_USE_CEGUI_NEXT
     m_pWindow->setSize(CEGUI::USize(CEGUI::UDim(0.0f, 128.0f), CEGUI::UDim(0.0f, 24.0f)));

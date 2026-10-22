@@ -1,0 +1,32 @@
+<?xml version="1.0" ?>
+<GUIScheme version="5" name="CGUI-Modern">
+	<Imageset filename="CGUI-Modern.is.xml" />
+	<LookNFeel filename="CGUI-Modern.lnf.xml" />
+	<WindowRendererSet filename="CEGUICoreWindowRendererSet" />
+
+	<FalagardMapping windowType="CGUI/TitlebarModern" targetType="CEGUI/Titlebar" renderer="Core/Titlebar" lookNFeel="CGUI/TitlebarModern" />
+	<FalagardMapping windowType="CGUI/ButtonModern" targetType="CEGUI/PushButton" renderer="Core/Button" lookNFeel="CGUI/ButtonModern" />
+	<FalagardMapping windowType="CGUI/FrameWindowModern" targetType="CEGUI/FrameWindow" renderer="Core/FrameWindow" lookNFeel="CGUI/FrameWindowModern" />
+	<FalagardMapping windowType="CGUI/EditboxModern" targetType="CEGUI/Editbox" renderer="Core/Editbox" lookNFeel="CGUI/EditboxModern" />
+	<FalagardMapping windowType="CGUI/VerticalScrollbarThumbModern" targetType="CEGUI/Thumb" renderer="Core/Button" lookNFeel="CGUI/VerticalScrollbarThumbModern" />
+	<FalagardMapping windowType="CGUI/VerticalScrollbarModern" targetType="CEGUI/Scrollbar" renderer="Core/Scrollbar" lookNFeel="CGUI/VerticalScrollbarModern" />
+	<FalagardMapping windowType="CGUI/HorizontalScrollbarThumbModern" targetType="CEGUI/Thumb" renderer="Core/Button" lookNFeel="CGUI/HorizontalScrollbarThumbModern" />
+	<FalagardMapping windowType="CGUI/HorizontalScrollbarModern" targetType="CEGUI/Scrollbar" renderer="Core/Scrollbar" lookNFeel="CGUI/HorizontalScrollbarModern" />
+	<FalagardMapping windowType="CGUI/StaticImageModern" targetType="DefaultWindow" renderer="Core/StaticImage" lookNFeel="CGUI/StaticImageModern" />
+	<FalagardMapping windowType="CGUI/StaticTextModern" targetType="DefaultWindow" renderer="Core/StaticText" lookNFeel="CGUI/StaticTextModern" />
+	<FalagardMapping windowType="CGUI/MultiLineEditboxModern" targetType="CEGUI/MultiLineEditbox" renderer="Core/MultiLineEditbox" lookNFeel="CGUI/MultiLineEditboxModern" />
+	<FalagardMapping windowType="CGUI/MultiColumnListModern" targetType="CEGUI/MultiColumnList" renderer="Core/MultiColumnList" lookNFeel="CGUI/MultiColumnListModern" />
+	<FalagardMapping windowType="CGUI/ListHeaderModern" targetType="CEGUI/ListHeader" renderer="Core/ListHeader" lookNFeel="CGUI/ListHeaderModern" />
+	<FalagardMapping windowType="CGUI/ListHeaderSegmentModern" targetType="CEGUI/ListHeaderSegment" renderer="Core/ListHeaderSegment" lookNFeel="CGUI/ListHeaderSegmentModern" />
+	<FalagardMapping windowType="CGUI/TabButtonModern" targetType="CEGUI/TabButton" renderer="Core/TabButton" lookNFeel="CGUI/TabButtonModern" />
+	<FalagardMapping windowType="CGUI/TabControlModern" targetType="CEGUI/TabControl" renderer="Core/TabControl" lookNFeel="CGUI/TabControlModern" />
+	<FalagardMapping windowType="CGUI/TabPaneModern" targetType="DefaultWindow" renderer="Core/Default" lookNFeel="CGUI/TabPaneModern" />
+	<FalagardMapping windowType="CGUI/ProgressBarModern" targetType="CEGUI/ProgressBar" renderer="Core/ProgressBar" lookNFeel="CGUI/ProgressBarModern" />
+	<FalagardMapping windowType="CGUI/CheckboxModern" targetType="CEGUI/ToggleButton" renderer="Core/ToggleButton" lookNFeel="CGUI/CheckboxModern" />
+	<FalagardMapping windowType="CGUI/RadioButtonModern" targetType="CEGUI/RadioButton" renderer="Core/ToggleButton" lookNFeel="CGUI/RadioButtonModern" />
+	<FalagardMapping windowType="CGUI/ScrollablePaneModern" targetType="CEGUI/ScrollablePane" renderer="Core/ScrollablePane" lookNFeel="CGUI/ScrollablePaneModern" />
+	<FalagardMapping windowType="CGUI/ComboDropListModern" targetType="CEGUI/ComboDropList" renderer="Core/Listbox" lookNFeel="CGUI/ComboDropListModern" />
+	<FalagardMapping windowType="CGUI/ComboEditboxModern" targetType="CEGUI/Editbox" renderer="Core/Editbox" lookNFeel="CGUI/ComboEditboxModern" />
+	<FalagardMapping windowType="CGUI/ComboboxModern" targetType="CEGUI/Combobox" renderer="Core/Default" lookNFeel="CGUI/ComboboxModern" />
+	<FalagardMapping windowType="CGUI/ImageButtonModern" targetType="CEGUI/PushButton" renderer="Core/Button" lookNFeel="CGUI/ImageButtonModern" />
+</GUIScheme>

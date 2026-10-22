@@ -134,6 +134,7 @@ private:
 
     int     m_LastSettingsRevision;  // the revision number the last time we saw the skin change
     SString m_LastSkinName;
+    bool    m_bLastModernInterface = false;
     SString m_LastLocaleName;
     uint    m_LocaleChangeCounter;
     SString m_QueuedLocaleChange;

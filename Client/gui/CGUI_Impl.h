@@ -77,6 +77,13 @@ public:
     void SetSkin(const char* szName);
     void SetBidiEnabled(bool bEnabled);
 
+    void SetModernSkinEnabled(bool bEnabled);
+    bool IsModernSkinEnabled() const;
+
+    // Window type to create for a widget: the modern variant when it is enabled and available,
+    // otherwise szType unchanged. Script GUI (anything under the script root) always gets szType.
+    CEGUI::String ResolveWindowType(const char* szType, CGUIElement* pParent);
+
     void Draw();
     void Invalidate();
     void Restore();
@@ -383,5 +390,17 @@ private:
     SString      m_CurrentSchemeName;
     CElapsedTime m_RenderOkTimer;
 
+    static constexpr const char* CGUI_MODERN_SCHEME_FILE = "CGUI-Modern.xml";
+    static constexpr const char* CGUI_MODERN_SCHEME_NAME = "CGUI-Modern";
+    static constexpr const char* CGUI_MODERN_IMAGESET_NAME = "CGUI-Modern";
+
+    bool m_bModernSkinEnabled = false;
+    bool m_bModernSkinLoaded = false;
+
     void CreateRootWindow();
+    bool IsScriptElement(CGUIElement* pElement);
+#ifdef MTA_USE_CEGUI_NEXT
+    void LoadModernSkin();
+    void UnloadModernSkin();
+#endif
 };

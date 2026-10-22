@@ -53,6 +53,11 @@ public:
     virtual void SetSkin(const char* szName) = 0;
     virtual void SetBidiEnabled(bool bEnabled) = 0;
 
+    // While enabled, widgets created outside script GUI use the "modern" look (MTA/cgui/modern)
+    // when available. Only core turns this on, around building its own menu windows.
+    virtual void SetModernSkinEnabled(bool bEnabled) = 0;
+    virtual bool IsModernSkinEnabled() const = 0;
+
     virtual void Draw() = 0;
     virtual void Invalidate() = 0;
     virtual void Restore() = 0;

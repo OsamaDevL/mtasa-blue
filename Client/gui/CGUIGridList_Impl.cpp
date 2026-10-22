@@ -67,9 +67,9 @@ CGUIGridList_Impl::CGUIGridList_Impl(CGUI_Impl* pGUI, CGUIElement* pParent, bool
 
     // Create the window and set default settings
     if (bFrame)
-        m_pWindow = pGUI->GetWindowManager()->createWindow(kGridListName, szUnique);
+        m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(kGridListName, pParent), szUnique);
     else
-        m_pWindow = pGUI->GetWindowManager()->createWindow(kGridListNoFrameName, szUnique);
+        m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(kGridListNoFrameName, pParent), szUnique);
 
     m_pWindow->setDestroyedByParent(false);
 #ifdef MTA_USE_CEGUI_NEXT

@@ -25,7 +25,7 @@ CGUIScrollPane_Impl::CGUIScrollPane_Impl(CGUI_Impl* pGUI, CGUIElement* pParent)
     pGUI->GetUniqueName(szUnique);
 
     // Create the window and set default settings
-    m_pWindow = pGUI->GetWindowManager()->createWindow(CGUISCROLLPANE_NAME, szUnique);
+    m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(CGUISCROLLPANE_NAME, pParent), szUnique);
     m_pWindow->setDestroyedByParent(false);
 #ifdef MTA_USE_CEGUI_NEXT
     m_pWindow->setArea(CEGUI::URect(CEGUI::UDim(0.0f, 0.0f), CEGUI::UDim(0.0f, 0.0f), CEGUI::UDim(0.9f, 0.0f), CEGUI::UDim(0.9f, 0.0f)));

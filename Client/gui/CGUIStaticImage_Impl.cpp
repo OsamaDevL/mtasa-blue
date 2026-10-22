@@ -33,7 +33,7 @@ CGUIStaticImage_Impl::CGUIStaticImage_Impl(CGUI_Impl* pGUI, CGUIElement* pParent
     pGUI->GetUniqueName(szUnique);
 
     // Create the control and set default properties
-    m_pWindow = pGUI->GetWindowManager()->createWindow(CGUISTATICIMAGE_NAME, szUnique);
+    m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(CGUISTATICIMAGE_NAME, pParent), szUnique);
     m_pWindow->setDestroyedByParent(false);
 #ifdef MTA_USE_CEGUI_NEXT
     m_pWindow->setSize(CEGUI::USize(CEGUI::UDim(1.0f, 0.0f), CEGUI::UDim(1.0f, 0.0f)));

@@ -220,8 +220,20 @@ void CLocalGUI::CreateWindows(bool bGameIsAlreadyLoaded)
     if (MTASA_VERSION_TYPE < VERSION_TYPE_UNTESTED)
         m_pLabelVersionTag->SetAlwaysOnTop(true);
 
-    // Create mainmenu
-    m_pMainMenu = new CMainMenu(pGUI);
+    // Create mainmenu. Only the menu opts into the modern look; chat, console and debug view keep
+    // the user's skin. The guard turns the look off again even if menu creation throws, so it can
+    // never leak into GUI created later (scripts are also blocked in CGUI_Impl::ResolveWindowType).
+    m_bLastModernInterface = CVARS_GET_VALUE<bool>("cgui_modern_interface");
+    struct ModernSkinScope
+    {
+        CGUI* gui;
+        ModernSkinScope(CGUI* pGUI, bool bEnabled) : gui(pGUI) { gui->SetModernSkinEnabled(bEnabled); }
+        ~ModernSkinScope() { gui->SetModernSkinEnabled(false); }
+    };
+    {
+        ModernSkinScope modernScope(pGUI, m_bLastModernInterface);
+        m_pMainMenu = new CMainMenu(pGUI);
+    }
     m_pMainMenu->SetVisible(bGameIsAlreadyLoaded, !bGameIsAlreadyLoaded, false);
 
     // Create console
@@ -419,6 +431,19 @@ void CLocalGUI::DoPulse()
                 if (CConsoleInterface* pConsole = CCore::GetSingleton().GetConsole())
                     pConsole->Printf("Please disconnect before changing skin");
                 cvars->Set("current_skin", m_LastSkinName);
+            }
+        }
+        else if (CVARS_GET_VALUE<bool>("cgui_modern_interface") != m_bLastModernInterface)
+        {
+            // Rebuild the menu windows with or without the modern look. Same rule as a skin
+            // change: only while disconnected, so no script GUI exists during the rebuild.
+            if (!CCore::GetSingleton().GetModManager()->IsLoaded())
+                SetSkin(m_LastSkinName);
+            else
+            {
+                if (CConsoleInterface* pConsole = CCore::GetSingleton().GetConsole())
+                    pConsole->Printf("Please disconnect before changing the interface style");
+                cvars->Set("cgui_modern_interface", m_bLastModernInterface);
             }
         }
 

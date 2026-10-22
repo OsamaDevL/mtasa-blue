@@ -36,7 +36,7 @@ CGUIWindow_Impl::CGUIWindow_Impl(CGUI_Impl* pGUI, CGUIElement* pParent, const ch
     if (!m_pWindow)
     {
         // Create new here
-        m_pWindow = pGUI->GetWindowManager()->createWindow(CGUIWINDOW_NAME, szUnique);
+        m_pWindow = pGUI->GetWindowManager()->createWindow(pGUI->ResolveWindowType(CGUIWINDOW_NAME, pParent), szUnique);
 #ifdef MTA_USE_CEGUI_NEXT
         m_pWindow->setArea(CEGUI::URect(CEGUI::UDim(0.10f, 0.0f), CEGUI::UDim(0.10f, 0.0f), CEGUI::UDim(0.60f, 0.0f), CEGUI::UDim(0.90f, 0.0f)));
 #else

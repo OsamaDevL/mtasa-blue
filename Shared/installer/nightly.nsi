@@ -829,6 +829,12 @@ SectionGroup /e "$(INST_SEC_CLIENT)" SECGCLIENT
             SetOutPath "$INSTDIR\MTA\cgui\images\serverbrowser"
             File "${FILES_ROOT}\mta\cgui\images\serverbrowser\*.png"
 
+            SetOutPath "$INSTDIR\MTA\cgui\modern"
+            File "${FILES_ROOT}\mta\cgui\modern\CGUI-Modern.xml"
+            File "${FILES_ROOT}\mta\cgui\modern\CGUI-Modern.is.xml"
+            File "${FILES_ROOT}\mta\cgui\modern\CGUI-Modern.lnf.xml"
+            File "${FILES_ROOT}\mta\cgui\modern\CGUI-Modern.png"
+
         !endif
 
         SetOutPath "$INSTDIR\MTA\locale\"
