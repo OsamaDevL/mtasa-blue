@@ -681,10 +681,22 @@ static ELegacyGeometry GetLegacyGeometry(const char* szProperty)
     return ELegacyGeometry::None;
 }
 
+// 0.4 wrote every number with "%f" ("{0.000000,15.000000}"), 0.8.7 uses "%g" ("{0,15}"). Scripts that compare the
+// text or cut it with string patterns expect the 0.4 form, so legacy reads use it again.
 static std::string FormatUDim(const CEGUI::UDim& value)
 {
-    // Same "{scale,offset}" text the 0.8.7 Position/Size properties produce
-    return CEGUI::PropertyHelper<CEGUI::UDim>::toString(value).c_str();
+    return SString("{%f,%f}", value.d_scale, value.d_offset);
+}
+
+static std::string FormatUVector2(const CEGUI::UDim& x, const CEGUI::UDim& y)
+{
+    return SString("{%s,%s}", FormatUDim(x).c_str(), FormatUDim(y).c_str());
+}
+
+static std::string FormatURect(const CEGUI::URect& rect)
+{
+    return SString("{%s,%s,%s,%s}", FormatUDim(rect.d_min.d_x).c_str(), FormatUDim(rect.d_min.d_y).c_str(), FormatUDim(rect.d_max.d_x).c_str(),
+                   FormatUDim(rect.d_max.d_y).c_str());
 }
 
 static bool GetLegacyGeometryProperty(CEGUI::Window* pWindow, const char* szProperty, std::string& strOut)
@@ -839,6 +851,34 @@ static CEGUI::String ToLegacyPropertyValue(CEGUI::Window* pWindow, const CEGUI::
         if (colours.isMonochromatic())
             return SString("%08X", colours.d_top_left.getARGB()).c_str();
     }
+
+    // Numbers in the 0.4 "%f" form. Geometry is taken from the element itself rather than re-parsed from the
+    // "%g" text, which only keeps 6 significant digits (228.484375 would come back as 228.484000).
+    if (strName == "Area")
+        return FormatURect(pWindow->getArea()).c_str();
+    if (strName == "Position")
+        return FormatUVector2(pWindow->getPosition().d_x, pWindow->getPosition().d_y).c_str();
+    if (strName == "Size")
+        return FormatUVector2(pWindow->getSize().d_width, pWindow->getSize().d_height).c_str();
+    if (strName == "MinSize")
+        return FormatUVector2(pWindow->getMinSize().d_width, pWindow->getMinSize().d_height).c_str();
+    if (strName == "MaxSize")
+        return FormatUVector2(pWindow->getMaxSize().d_width, pWindow->getMaxSize().d_height).c_str();
+
+    const CEGUI::Property* pProperty = pWindow->getPropertyInstance(strName);
+    if (!pProperty)
+        return strValue;
+    const CEGUI::String& strType = pProperty->getDataType();
+    float                f[8] = {};
+    if (strType == "float" && sscanf(strValue.c_str(), " %g", &f[0]) == 1)
+        return SString("%f", f[0]).c_str();
+    if (strType == "UDim" && sscanf(strValue.c_str(), " { %g , %g }", &f[0], &f[1]) == 2)
+        return FormatUDim(CEGUI::UDim(f[0], f[1])).c_str();
+    if ((strType == "UVector2" || strType == "USize") && sscanf(strValue.c_str(), " { { %g , %g } , { %g , %g } }", &f[0], &f[1], &f[2], &f[3]) == 4)
+        return FormatUVector2(CEGUI::UDim(f[0], f[1]), CEGUI::UDim(f[2], f[3])).c_str();
+    if (strType == "URect" &&
+        sscanf(strValue.c_str(), " { { %g , %g } , { %g , %g } , { %g , %g } , { %g , %g } }", &f[0], &f[1], &f[2], &f[3], &f[4], &f[5], &f[6], &f[7]) == 8)
+        return FormatURect(CEGUI::URect(CEGUI::UDim(f[0], f[1]), CEGUI::UDim(f[2], f[3]), CEGUI::UDim(f[4], f[5]), CEGUI::UDim(f[6], f[7]))).c_str();
 
     return strValue;
 }
