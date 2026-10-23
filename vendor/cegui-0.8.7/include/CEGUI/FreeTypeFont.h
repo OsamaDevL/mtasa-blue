@@ -108,6 +108,11 @@ public:
     //! return whether the freetype font is rendered anti-aliased.
     bool isAntiAliased() const;
 
+    //! MTA: font height the way CEGUI 0.4 reported it (tallest rendered ASCII glyph + 2 pixels of padding).
+    //! Used for the values scripts read (guiLabelGetFontHeight, dxGetFontHeight); CEGUI's own layout still
+    //! uses getFontHeight().
+    float getLegacyFontHeight(float y_scale = 1.0f) const { return d_legacyFontHeight * y_scale; }
+
     //! return the point size of the freetype font.
     void setPointSize(const float point_size);
 
@@ -168,6 +173,8 @@ protected:
     bool d_antiAliased;
     //! FreeType-specific font handle
     FT_Face d_fontFace;
+    //! MTA: see getLegacyFontHeight
+    float d_legacyFontHeight;
     //! Font file data
     RawDataContainer d_fontData;
     //! Type definition for TextureVector.

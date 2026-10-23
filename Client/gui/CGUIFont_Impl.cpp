@@ -151,8 +151,15 @@ float CGUIFont_Impl::GetCharacterWidth(int iChar, float fScale)
 
 float CGUIFont_Impl::GetFontHeight(float fScale)
 {
+#ifdef MTA_USE_CEGUI_NEXT
+    // 0.8.7's getFontHeight is the design ascender - descender, smaller than what 0.4 reported. dxGetFontHeight and
+    // friends must keep returning the 0.4 value, or script layouts built on it shift.
+    const CEGUI::FreeTypeFont* pFreeTypeFont = dynamic_cast<const CEGUI::FreeTypeFont*>(m_pFont);
+    float                      fHeight = pFreeTypeFont ? pFreeTypeFont->getLegacyFontHeight(fScale) : m_pFont->getFontHeight(fScale);
+#else
     float fHeight = m_pFont->getFontHeight(fScale);  // average height.. not the maximum height for long characters such as 'g' or 'j'
-    fHeight += 2.0f;                                 // so hack it
+#endif
+    fHeight += 2.0f;  // so hack it
 
     return fHeight;
 }

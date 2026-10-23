@@ -13,6 +13,7 @@
 
 #ifdef MTA_USE_CEGUI_NEXT
     #include <CEGUI/PropertyHelper.h>
+    #include <CEGUI/FreeTypeFont.h>
 #endif
 
 #define CGUILABEL_NAME "CGUI/StaticText"
@@ -240,7 +241,14 @@ float CGUILabel_Impl::GetFontHeight()
 {
     const CEGUI::Font* pFont = m_pWindow->getFont();
     if (pFont)
+    {
+#ifdef MTA_USE_CEGUI_NEXT
+        // Report the height the way 0.4 did (guiLabelGetFontHeight), see FreeTypeFont::getLegacyFontHeight
+        if (const CEGUI::FreeTypeFont* pFreeTypeFont = dynamic_cast<const CEGUI::FreeTypeFont*>(pFont))
+            return pFreeTypeFont->getLegacyFontHeight();
+#endif
         return pFont->getFontHeight();
+    }
     return 14.0f;
 }
 

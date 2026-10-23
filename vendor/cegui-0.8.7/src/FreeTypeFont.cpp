@@ -43,6 +43,12 @@
 #define snprintf _snprintf
 #endif
 
+// MTA: CEGUI 0.8.7 forced FreeType's auto-hinter (FT_LOAD_FORCE_AUTOHINT). MTA's CEGUI 0.4 used the font's own
+// hinting, which gives different glyph widths at small sizes (default-normal text came out ~6% wider), so
+// script layouts built with guiLabelGetTextExtent no longer fit. Use the font's hinting again, in all three
+// loads, so measured advances always match the rendered glyphs.
+#define MTA_FT_LOAD_HINTING FT_LOAD_DEFAULT
+
 namespace CEGUI
 {
 //----------------------------------------------------------------------------//
@@ -76,7 +82,8 @@ FreeTypeFont::FreeTypeFont(const String& font_name, const float point_size,
     d_specificLineSpacing(specific_line_spacing),
     d_ptSize(point_size),
     d_antiAliased(anti_aliased),
-    d_fontFace(0)
+    d_fontFace(0),
+    d_legacyFontHeight(0)
 {
     if (!ft_usage_count++)
         FT_Init_FreeType(&ft_lib);
@@ -138,7 +145,7 @@ uint FreeTypeFont::getTextureSize(CodepointMap::const_iterator s,
 
             // load glyph metrics (don't render)
             if (FT_Load_Char(d_fontFace, c->first,
-                             FT_LOAD_DEFAULT | FT_LOAD_FORCE_AUTOHINT))
+                             MTA_FT_LOAD_HINTING))
                 continue;
 
             uint glyph_w = int (ceil(d_fontFace->glyph->metrics.width * FT_POS_COEF)) +
@@ -222,7 +229,7 @@ void FreeTypeFont::rasterise(utf32 start_codepoint, utf32 end_codepoint) const
             if (!s->second.getImage())
             {
                 // Render the glyph
-                if (FT_Load_Char(d_fontFace, s->first, FT_LOAD_RENDER | FT_LOAD_FORCE_AUTOHINT |
+                if (FT_Load_Char(d_fontFace, s->first, FT_LOAD_RENDER | MTA_FT_LOAD_HINTING |
                                  (d_antiAliased ? FT_LOAD_TARGET_NORMAL : FT_LOAD_TARGET_MONO)))
                 {
                     std::stringstream err;
@@ -466,6 +473,21 @@ void FreeTypeFont::updateFont()
     }
 
     initialiseGlyphMap();
+
+    // MTA: CEGUI 0.4 reported the font height as the tallest rendered glyph of its initial set (ASCII 32-126)
+    // plus 2 pixels of padding, while 0.8.7 uses the design ascender - descender (e.g. 14.5 instead of 17 for
+    // default-normal). Scripts size labels with that number, so keep the 0.4 value available. It is measured
+    // at the current (auto-scaled) size and redone whenever the font is updated. 0.4 could grow it later when
+    // taller glyphs (CJK, fallback characters) were first drawn; measuring ASCII matches the common case.
+    d_legacyFontHeight = 0;
+    const FT_Int32 legacyRenderFlags = FT_LOAD_RENDER | MTA_FT_LOAD_HINTING |
+        (d_antiAliased ? FT_LOAD_TARGET_NORMAL : FT_LOAD_MONOCHROME | FT_LOAD_TARGET_MONO);
+    for (FT_ULong codepoint = 32; codepoint <= 126; ++codepoint)
+    {
+        if (FT_Load_Char(d_fontFace, codepoint, legacyRenderFlags) == 0)
+            d_legacyFontHeight = ceguimax(d_legacyFontHeight, static_cast<float>(d_fontFace->glyph->bitmap.rows));
+    }
+    d_legacyFontHeight += 2.0f;
 }
 
 //----------------------------------------------------------------------------//
@@ -507,7 +529,7 @@ void FreeTypeFont::initialiseFontGlyph(CodepointMap::iterator cp) const
 {
     // load-up required glyph metrics (don't render)
     if (FT_Load_Char(d_fontFace, cp->first,
-                     FT_LOAD_DEFAULT | FT_LOAD_FORCE_AUTOHINT))
+                     MTA_FT_LOAD_HINTING))
         return;
 
     const float adv =
