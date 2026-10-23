@@ -90,9 +90,50 @@ void CGUIElement_Impl::DestroyElement()
     m_pManager = NULL;
 }
 
+// CEGUI routes captured mouse input straight to the capture window, skipping the
+// checks the normal hit-test path applies, and nothing drops the capture when a
+// window stops being eligible for input.
+static void ReleaseCaptureWithin(CEGUI::Window* pWindow)
+{
+    if (!pWindow)
+        return;
+
+    // A RestoreOldCapture window hands capture to another window instead of
+    // clearing it, and that window can be in this same subtree. Bounded so a
+    // restore chain cannot spin.
+    for (int i = 0; i < 8; ++i)
+    {
+#ifdef MTA_USE_CEGUI_NEXT
+        // 0.8.7 keeps the capture window per GUI context instead of in a static
+        CEGUI::Window* pCapture = pWindow->getCaptureWindow();
+#else
+        CEGUI::Window* pCapture = CEGUI::Window::getCaptureWindow();
+#endif
+        if (!pCapture)
+            return;
+
+        // isAncestor recurses, isChild would only match a direct child.
+        if (pCapture != pWindow && !pCapture->isAncestor(pWindow))
+            return;
+
+        pCapture->releaseInput();
+    }
+}
+
 void CGUIElement_Impl::SetVisible(bool bVisible)
 {
+#ifdef MTA_USE_CEGUI_NEXT
+    // 0.4's isVisible(true) is the window's own flag; that's plain isVisible() in 0.8.7
+    const bool bWasVisible = m_pWindow->isVisible();
+#else
+    const bool bWasVisible = m_pWindow->isVisible(true);
+#endif
+
     m_pWindow->setVisible(bVisible);
+
+    // After the state change, so onCaptureLost's synthetic mouse move sees it.
+    if (!bVisible && bWasVisible)
+        ReleaseCaptureWithin(m_pWindow);
 }
 
 bool CGUIElement_Impl::IsVisible()
@@ -102,8 +143,18 @@ bool CGUIElement_Impl::IsVisible()
 
 void CGUIElement_Impl::SetEnabled(bool bEnabled)
 {
+#ifdef MTA_USE_CEGUI_NEXT
+    // 0.4's isDisabled(true) is the window's own flag; that's plain isDisabled() in 0.8.7
+    const bool bWasEnabled = !m_pWindow->isDisabled();
+#else
+    const bool bWasEnabled = !m_pWindow->isDisabled(true);
+#endif
+
     m_pWindow->setEnabled(bEnabled);
     // m_pWindow->setZOrderingEnabled ( bEnabled );
+
+    if (!bEnabled && bWasEnabled)
+        ReleaseCaptureWithin(m_pWindow);
 }
 
 bool CGUIElement_Impl::IsEnabled()
@@ -575,7 +626,7 @@ bool CGUIElement_Impl::SetFont(const char* szFontName)
         m_pWindow->setFont(CEGUI::String(szFontName));
         return true;
     }
-    catch (CEGUI::Exception e)
+    catch (const CEGUI::Exception&)
     {
         return false;
     }
@@ -593,7 +644,7 @@ std::string CGUIElement_Impl::GetFont()
             return strFontName.c_str();
         }
     }
-    catch (CEGUI::Exception e)
+    catch (const CEGUI::Exception&)
     {
     }
 
@@ -1000,11 +1051,13 @@ void CGUIElement_Impl::FillProperties()
             continue;
         }
 
-        CGUIProperty* pProperty = new CGUIProperty;
+        std::unique_ptr<CGUIProperty> pProperty = std::make_unique<CGUIProperty>();
         pProperty->strKey = strKey.c_str();
         pProperty->strValue = strValue.c_str();
 
-        m_Properties.push_back(pProperty);
+        // Hand over ownership only after push_back succeeds, so a throw still frees it.
+        m_Properties.push_back(pProperty.get());
+        pProperty.release();
         itPropertySet++;
     }
 }
@@ -1022,6 +1075,8 @@ void CGUIElement_Impl::EmptyProperties()
                 delete (*iter);
             }
         }
+        // Clear the nodes too, so callers see an empty list and can retry.
+        m_Properties.clear();
     }
 }
 
@@ -1036,10 +1091,17 @@ CGUIPropertyIter CGUIElement_Impl::GetPropertiesBegin()
         // Return the list begin iterator
         return m_Properties.begin();
     }
-    catch (CEGUI::Exception e)
+    catch (const CEGUI::Exception&)
     {
-        // Dereferencing NULL here crashed the client; an empty range (begin == end) just yields no properties
+        // Empty range instead of a null iterator; drop half-read entries for a clean retry.
+        EmptyProperties();
         return m_Properties.end();
+    }
+    catch (const std::bad_alloc&)
+    {
+        // Rethrow, but drop partial entries first so a retry starts clean.
+        EmptyProperties();
+        throw;
     }
 }
 
@@ -1051,13 +1113,20 @@ CGUIPropertyIter CGUIElement_Impl::GetPropertiesEnd()
         if (m_Properties.empty())
             FillProperties();
 
-        // Return the list begin iterator
+        // Return the list end iterator
         return m_Properties.end();
     }
-    catch (CEGUI::Exception e)
+    catch (const CEGUI::Exception&)
     {
-        // Dereferencing NULL here crashed the client; an empty range (begin == end) just yields no properties
+        // Same as GetPropertiesBegin: empty range, partial entries dropped.
+        EmptyProperties();
         return m_Properties.end();
+    }
+    catch (const std::bad_alloc&)
+    {
+        // Rethrow, but drop partial entries first so a retry starts clean.
+        EmptyProperties();
+        throw;
     }
 }
 

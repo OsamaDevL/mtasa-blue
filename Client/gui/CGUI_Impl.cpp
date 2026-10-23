@@ -280,14 +280,24 @@ void CGUI_Impl::SetSkin(const char* szName)
 
     PushGuiWorkingDirectory(CalcMTASAPath(PathJoin("skins", szName)));
 
+    // Pop the working directory before the exception reaches the fallback skin,
+    // or later asset loads resolve inside the failed skin and healthy installs look broken.
+    try
+    {
 #ifdef MTA_USE_CEGUI_NEXT
-    CEGUI::Scheme& scheme = CEGUI::SchemeManager::getSingleton().createFromFile("CGUI-v8.xml");
-    m_CurrentSchemeName = scheme.getName().c_str();
+        CEGUI::Scheme& scheme = CEGUI::SchemeManager::getSingleton().createFromFile("CGUI-v8.xml");
+        m_CurrentSchemeName = scheme.getName().c_str();
 #else
-    CEGUI::Scheme* scheme = CEGUI::SchemeManager::getSingleton().loadScheme("CGUI.xml");
-    m_CurrentSchemeName = scheme->getName().c_str();
+        CEGUI::Scheme* scheme = CEGUI::SchemeManager::getSingleton().loadScheme("CGUI.xml");
+        m_CurrentSchemeName = scheme->getName().c_str();
 #endif
-    m_HasSchemeLoaded = true;
+        m_HasSchemeLoaded = true;
+    }
+    catch (...)
+    {
+        PopGuiWorkingDirectory();
+        throw;
+    }
 
     PopGuiWorkingDirectory();
 
@@ -477,70 +487,109 @@ CVector2D CGUI_Impl::GetResolution()
 #endif
 }
 
+namespace
+{
+    // True while the CC54 dialog is open: nested faults exit instead of stacking.
+    bool s_bCEGUIFaultDialogOpen = false;
+
+    void ShowFatalCEGUIException(const CEGUI::Exception& exception, const char* szContext)
+    {
+        if (s_bCEGUIFaultDialogOpen)
+        {
+            // Nested fault in the first dialog's pump: exit instead of stacking another.
+            TerminateProcess(GetCurrentProcess(), 9);
+            return;
+        }
+        s_bCEGUIFaultDialogOpen = true;
+
+        WriteDebugEvent(SString("CGUI_Impl::%s - CEGUI exception: %s", szContext, exception.getMessage().c_str()));
+        SString strMsg(
+            "%s\n\n"
+            "Usually caused by missing GUI/loading-screen assets.\n\n"
+            "Please verify game files or reinstall MTA.",
+            exception.getMessage().c_str());
+        MessageBoxUTF8(0, strMsg, _("Error") + _E("CC54"), MB_OK | MB_ICONERROR | MB_TOPMOST);
+        TerminateProcess(GetCurrentProcess(), 9);
+    }
+}
+
+void CGUI_Impl::SetFatalFaultDialogOpen(bool bOpen)
+{
+    // Core sets this for CC51 too, so a CEGUI fault in its pump exits instead of stacking CC54.
+    s_bCEGUIFaultDialogOpen = bOpen;
+}
+
+bool CGUI_Impl::IsFatalFaultDialogOpen() const
+{
+    return s_bCEGUIFaultDialogOpen;
+}
+
 void CGUI_Impl::SetResolution(float fWidth, float fHeight)
 {
-#ifdef MTA_USE_CEGUI_NEXT
-    if (m_pRenderer)
+    try
     {
-        static_cast<CEGUI::Direct3D9Renderer*>(m_pRenderer)->setDisplaySize(CEGUI::Sizef(fWidth, fHeight));
-        if (CEGUI::System::getSingletonPtr())
-            CEGUI::System::getSingleton().notifyDisplaySizeChanged(CEGUI::Sizef(fWidth, fHeight));
-    }
+#ifdef MTA_USE_CEGUI_NEXT
+        if (m_pRenderer)
+        {
+            static_cast<CEGUI::Direct3D9Renderer*>(m_pRenderer)->setDisplaySize(CEGUI::Sizef(fWidth, fHeight));
+            if (CEGUI::System::getSingletonPtr())
+                CEGUI::System::getSingleton().notifyDisplaySizeChanged(CEGUI::Sizef(fWidth, fHeight));
+        }
 #else
-    reinterpret_cast<CEGUI::DirectX9Renderer*>(m_pRenderer)->setDisplaySize(CEGUI::Size(fWidth, fHeight));
+        reinterpret_cast<CEGUI::DirectX9Renderer*>(m_pRenderer)->setDisplaySize(CEGUI::Size(fWidth, fHeight));
 #endif
+    }
+    catch (const CEGUI::Exception& exception)
+    {
+        // Reachable from the vid command when the video mode changes.
+        ShowFatalCEGUIException(exception, "SetResolution");
+    }
 }
 
 void CGUI_Impl::Draw()
 {
-#ifndef MTA_USE_CEGUI_NEXT
-    // In legacy CEGUI 0.4, property mutations did not invalidate parent surfaces reliably.
-    // In CEGUI 0.8.7, element invalidation propagates automatically to RenderingSurfaces in O(1).
-    if (!m_RedrawQueue.empty())
-    {
-        for (const auto handle : m_RedrawQueue)
-        {
-            if (CGUIElement* pElement = ResolveRedrawHandle(handle))
-            {
-                pElement->ForceRedraw();
-            }
-        }
-        m_RedrawQueue.clear();
-    }
-#endif
-
-#ifdef MTA_USE_CEGUI_NEXT
     try
     {
-        // CEGUI 0.8.7 automatically tracks dirty state on user input, window moves, resizes,
-        // and property changes. Do not unconditionally mark the context dirty every frame,
-        // allowing static frames to bypass geometry buffer rebuilding.
+#ifdef MTA_USE_CEGUI_NEXT
+        // CEGUI 0.8.7 tracks dirty state itself (input, moves, resizes, property changes) and invalidation
+        // propagates to the rendering surfaces, so the queue isn't needed. Elements are still queued by
+        // shared code, so drop them here instead of letting stale handles pile up.
+        m_RedrawQueue.clear();
+
+        // Don't mark the context dirty every frame, so static frames skip rebuilding geometry buffers.
         m_pSystem->renderAllGUIContexts();
-    }
-    catch (const CEGUI::Exception& e)
-    {
-        WriteDebugEvent(SString("CEGUI Exception in Draw: %s", e.getMessage().c_str()));
-        MessageBoxUTF8(0, SString("CEGUI Exception in Draw:\n\n%s", e.getMessage().c_str()), "CEGUI Draw Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
-        throw;
-    }
-    catch (const std::exception& e)
-    {
-        WriteDebugEvent(SString("std::exception in Draw: %s", e.what()));
-        MessageBoxUTF8(0, SString("std::exception in Draw:\n\n%s", e.what()), "Draw Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
-        throw;
-    }
 #else
-    if (!m_pSystem->renderGUI())
-    {
-        if (m_RenderOkTimer.Get() > 4000)
+        // In legacy CEGUI 0.4, property mutations did not invalidate parent surfaces reliably.
+        // Redraw the changed elements
+        if (!m_RedrawQueue.empty())
         {
-            // 4 seconds and over 40 failed calls means we have a problem
-            BrowseToSolution("gui-render", EXIT_GAME_FIRST, "Some sort of DirectX problem has occurred");
+            for (const auto handle : m_RedrawQueue)
+            {
+                if (CGUIElement* pElement = ResolveRedrawHandle(handle))
+                {
+                    pElement->ForceRedraw();
+                }
+            }
+            m_RedrawQueue.clear();
         }
-    }
-    else
-        m_RenderOkTimer.Reset();
+
+        if (!m_pSystem->renderGUI())
+        {
+            if (m_RenderOkTimer.Get() > 4000)
+            {
+                // 4 seconds and over 40 failed calls means we have a problem
+                BrowseToSolution("gui-render", EXIT_GAME_FIRST, "Some sort of DirectX problem has occurred");
+            }
+        }
+        else
+            m_RenderOkTimer.Reset();
 #endif
+    }
+    catch (const CEGUI::Exception& exception)
+    {
+        // Missing or corrupt GUI assets throw here; show one clear error and exit.
+        ShowFatalCEGUIException(exception, "Draw");
+    }
 }
 
 void CGUI_Impl::Invalidate()
@@ -555,8 +604,8 @@ void CGUI_Impl::Invalidate()
     }
     catch (const CEGUI::Exception& exception)
     {
-        MessageBox(0, exception.getMessage().c_str(), "CEGUI Exception", MB_OK | MB_ICONERROR | MB_TOPMOST);
-        TerminateProcess(GetCurrentProcess(), 1);
+        // A CEGUI fault here unwinds through the D3D reset path and crashes harder in COM.
+        ShowFatalCEGUIException(exception, "Invalidate");
     }
 }
 
@@ -572,8 +621,7 @@ void CGUI_Impl::Restore()
     }
     catch (const CEGUI::Exception& exception)
     {
-        MessageBox(0, exception.getMessage().c_str(), "CEGUI Exception", MB_OK | MB_ICONERROR | MB_TOPMOST);
-        TerminateProcess(GetCurrentProcess(), 1);
+        ShowFatalCEGUIException(exception, "Restore");
     }
 }
 
@@ -582,7 +630,14 @@ void CGUI_Impl::DrawMouseCursor()
 #ifdef MTA_USE_CEGUI_NEXT
     // Handled by GUIContext rendering in 0.8.7
 #else
-    CEGUI::MouseCursor::getSingleton().draw();
+    try
+    {
+        CEGUI::MouseCursor::getSingleton().draw();
+    }
+    catch (const CEGUI::Exception& exception)
+    {
+        ShowFatalCEGUIException(exception, "DrawMouseCursor");
+    }
 #endif
 }
 
@@ -804,8 +859,9 @@ CGUIFont* CGUI_Impl::CreateFntFromWinFont(const char* szFontName, const char* sz
             {
                 pResult = (CGUIFont_Impl*)CreateFnt(szFontName, lookList[i], uSize, uFlags, bAutoScale);
             }
-            catch (CEGUI::Exception e)
+            catch (const CEGUI::Exception&)
             {
+                // Try the next location; failure is reported after the loop.
             }
         }
 
@@ -1027,7 +1083,7 @@ bool CGUI_Impl::LoadImageset(const SString& strFilename)
     {
         return GetImageSetManager()->createImageset(strFilename, "", true) != NULL;
     }
-    catch (CEGUI::AlreadyExistsException exc)
+    catch (const CEGUI::AlreadyExistsException&)
     {
         return true;
     }
@@ -1476,7 +1532,16 @@ void CGUI_Impl::SetDefaultGuiWorkingDirectory(const SString& strDir)
 void CGUI_Impl::PushGuiWorkingDirectory(const SString& strDir)
 {
     m_GuiWorkingDirectoryStack.push_back(PathConform(strDir + "\\"));
-    ApplyGuiWorkingDirectory();
+    try
+    {
+        ApplyGuiWorkingDirectory();
+    }
+    catch (...)
+    {
+        // Applying failed: drop the pushed entry, or a later Pop restores the wrong directory.
+        m_GuiWorkingDirectoryStack.pop_back();
+        throw;
+    }
 }
 
 void CGUI_Impl::PopGuiWorkingDirectory(const SString& strDirCheck)
@@ -1490,7 +1555,8 @@ void CGUI_Impl::PopGuiWorkingDirectory(const SString& strDirCheck)
         if (!strDirCheck.empty())
         {
             const SString& strWas = m_GuiWorkingDirectoryStack.back();
-            if (strDirCheck != strWas)
+            // Push conforms paths, so compare conformed.
+            if (PathConform(strDirCheck + "\\") != strWas)
             {
                 OutputDebugLine(SString("CGUI_Impl::PopWorkingDirectory - Mismatch. Got '%s', expected '%s'", *strWas, *strDirCheck));
             }
