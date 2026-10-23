@@ -698,7 +698,19 @@ void CGUIElement_Impl::FillProperties()
     while (!itPropertySet.isAtEnd())
     {
         CEGUI::String strKey = itPropertySet.getCurrentKey();
-        CEGUI::String strValue = m_pWindow->getProperty(strKey);
+        CEGUI::String strValue;
+        try
+        {
+            strValue = m_pWindow->getProperty(strKey);
+        }
+        catch (const CEGUI::Exception&)
+        {
+            // CEGUI 0.8.7 has write-only properties (MultiColumnList's "ColumnHeader") that throw on read.
+            // Letting it escape makes GetPropertiesBegin return a null iterator, so guiGetProperties on a
+            // gridlist crashed the client. Skip it, like 0.4 which just returned nothing for it.
+            itPropertySet++;
+            continue;
+        }
 
         CGUIProperty* pProperty = new CGUIProperty;
         pProperty->strKey = strKey.c_str();
@@ -738,7 +750,8 @@ CGUIPropertyIter CGUIElement_Impl::GetPropertiesBegin()
     }
     catch (CEGUI::Exception e)
     {
-        return *(CGUIPropertyIter*)NULL;
+        // Dereferencing NULL here crashed the client; an empty range (begin == end) just yields no properties
+        return m_Properties.end();
     }
 }
 
@@ -755,7 +768,8 @@ CGUIPropertyIter CGUIElement_Impl::GetPropertiesEnd()
     }
     catch (CEGUI::Exception e)
     {
-        return *(CGUIPropertyIter*)NULL;
+        // Dereferencing NULL here crashed the client; an empty range (begin == end) just yields no properties
+        return m_Properties.end();
     }
 }
 
