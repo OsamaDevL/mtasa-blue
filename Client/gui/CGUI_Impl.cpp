@@ -414,6 +414,11 @@ CEGUI::String CGUI_Impl::ResolveWindowType(const char* szType, CGUIElement* pPar
 
 void CGUI_Impl::SetBidiEnabled(bool bEnabled)
 {
+    // Diagnostic switch from 2012 (74a290ad5, debug setting "#6778 BIDI") that turned off the right-to-left
+    // text processing MTA added to its CEGUI 0.4 fork, to troubleshoot bug #6778. Its Settings option is
+    // commented out, and CDirect3DEvents9 just keeps it enabled every frame.
+    // CEGUI 0.8.7 does bidi itself (BidiVisualMapping) and has no global switch, so there is nothing to
+    // toggle there and this is intentionally a no-op.
 #ifndef MTA_USE_CEGUI_NEXT
     m_pSystem->SetBidiEnabled(bEnabled);
 #endif
