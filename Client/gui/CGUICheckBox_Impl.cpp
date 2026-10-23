@@ -29,6 +29,10 @@ CGUICheckBox_Impl::CGUICheckBox_Impl(CGUI_Impl* pGUI, CGUIElement* pParent, cons
 
 #ifdef MTA_USE_CEGUI_NEXT
     m_pWindow->setSize(CEGUI::USize(CEGUI::UDim(0.0f, 128.0f), CEGUI::UDim(0.0f, 16.0f)));
+    // CEGUI 0.8.7's ButtonBase turns double-clicks off for every button type, checkboxes included. In 0.4 a
+    // checkbox/radio button got them, so onClientGUIDoubleClick fired and a double-click toggled it once.
+    // Turn them back on so scripts behave the same.
+    m_pWindow->setWantsMultiClickEvents(true);
 #else
     m_pWindow->setSize(CEGUI::Absolute, CEGUI::Size(128.0f, 16.0f));
 #endif
