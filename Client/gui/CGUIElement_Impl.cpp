@@ -607,21 +607,240 @@ static const char* TranslateLegacyPropertyName(const char* szProperty)
         return "CaretIndex";
     if (stricmp(szProperty, "RollUpEnabled") == 0)
         return "RollupEnabled";
-    if (stricmp(szProperty, "UnifiedAreaRect") == 0 || stricmp(szProperty, "AbsoluteAreaRect") == 0 || stricmp(szProperty, "AbsoluteRect") == 0)
+    // The unified values are written the same way in 0.4 and 0.8.7 ("{{s,o},{s,o}}"), so a rename is enough.
+    // Absolute*, UnifiedX/YPosition and UnifiedWidth/Height have no 0.8.7 property at all and are handled
+    // by GetLegacyGeometryProperty / SetLegacyGeometryProperty instead.
+    if (stricmp(szProperty, "UnifiedAreaRect") == 0)
         return "Area";
-    if (stricmp(szProperty, "UnifiedPosition") == 0 || stricmp(szProperty, "AbsolutePosition") == 0)
+    if (stricmp(szProperty, "UnifiedPosition") == 0)
         return "Position";
-    if (stricmp(szProperty, "UnifiedSize") == 0 || stricmp(szProperty, "AbsoluteSize") == 0)
+    if (stricmp(szProperty, "UnifiedSize") == 0)
         return "Size";
-    if (stricmp(szProperty, "UnifiedXPosition") == 0 || stricmp(szProperty, "AbsoluteXPosition") == 0)
-        return "XPosition";
-    if (stricmp(szProperty, "UnifiedYPosition") == 0 || stricmp(szProperty, "AbsoluteYPosition") == 0)
-        return "YPosition";
-    if (stricmp(szProperty, "UnifiedWidth") == 0 || stricmp(szProperty, "AbsoluteWidth") == 0)
-        return "Width";
-    if (stricmp(szProperty, "UnifiedHeight") == 0 || stricmp(szProperty, "AbsoluteHeight") == 0)
-        return "Height";
+    if (stricmp(szProperty, "UnifiedMinSize") == 0)
+        return "MinSize";
+    if (stricmp(szProperty, "UnifiedMaxSize") == 0)
+        return "MaxSize";
+    // Plain renames between 0.4 and 0.8.7 (same meaning and value format)
+    if (stricmp(szProperty, "RiseOnClick") == 0)
+        return "RiseOnClickEnabled";
+    if (stricmp(szProperty, "ZOrderChangeEnabled") == 0)
+        return "ZOrderingEnabled";
+    if (stricmp(szProperty, "Tooltip") == 0)
+        return "TooltipText";
+    if (stricmp(szProperty, "CustomTooltipType") == 0)
+        return "TooltipType";
+    if (stricmp(szProperty, "MouseButtonDownAutoRepeat") == 0)
+        return "MouseAutoRepeatEnabled";
+    if (stricmp(szProperty, "EditSelectionStart") == 0)
+        return "SelectionStart";
+    if (stricmp(szProperty, "EditSelectionLength") == 0)
+        return "SelectionLength";
+    if (stricmp(szProperty, "MaxEditTextLength") == 0)
+        return "MaxTextLength";
     return szProperty;
+}
+
+// CEGUI 0.4 had a property for each axis (UnifiedXPosition, UnifiedWidth, ...) and pixel versions
+// (AbsolutePosition "x:10 y:30", AbsoluteSize "w:.. h:..", AbsoluteRect "l:.. t:.. r:.. b:..", AbsoluteWidth "10").
+// 0.8.7 only keeps Position/Size/Area, so scripts using the old names read "" and their writes were ignored.
+// Mapping the Absolute* names onto the unified properties is not enough either: the pixel text doesn't parse as
+// a unified value and would move or resize the element to zero. So read and write them through the Element API.
+enum class ELegacyGeometry
+{
+    None,
+    UnifiedX,
+    UnifiedY,
+    UnifiedWidth,
+    UnifiedHeight,
+    AbsoluteX,
+    AbsoluteY,
+    AbsoluteWidth,
+    AbsoluteHeight,
+    AbsolutePosition,
+    AbsoluteSize,
+    AbsoluteRect,
+};
+
+static ELegacyGeometry GetLegacyGeometry(const char* szProperty)
+{
+    static const struct
+    {
+        const char*     szName;
+        ELegacyGeometry type;
+    } names[] = {
+        {"UnifiedXPosition", ELegacyGeometry::UnifiedX},         {"UnifiedYPosition", ELegacyGeometry::UnifiedY},
+        {"UnifiedWidth", ELegacyGeometry::UnifiedWidth},         {"UnifiedHeight", ELegacyGeometry::UnifiedHeight},
+        {"AbsoluteXPosition", ELegacyGeometry::AbsoluteX},       {"AbsoluteYPosition", ELegacyGeometry::AbsoluteY},
+        {"AbsoluteWidth", ELegacyGeometry::AbsoluteWidth},       {"AbsoluteHeight", ELegacyGeometry::AbsoluteHeight},
+        {"AbsolutePosition", ELegacyGeometry::AbsolutePosition}, {"AbsoluteSize", ELegacyGeometry::AbsoluteSize},
+        {"AbsoluteRect", ELegacyGeometry::AbsoluteRect},         {"AbsoluteAreaRect", ELegacyGeometry::AbsoluteRect},
+    };
+    for (const auto& entry : names)
+        if (stricmp(szProperty, entry.szName) == 0)
+            return entry.type;
+    return ELegacyGeometry::None;
+}
+
+static std::string FormatUDim(const CEGUI::UDim& value)
+{
+    // Same "{scale,offset}" text the 0.8.7 Position/Size properties produce
+    return CEGUI::PropertyHelper<CEGUI::UDim>::toString(value).c_str();
+}
+
+static bool GetLegacyGeometryProperty(CEGUI::Window* pWindow, const char* szProperty, std::string& strOut)
+{
+    const ELegacyGeometry type = GetLegacyGeometry(szProperty);
+    if (type == ELegacyGeometry::None)
+        return false;
+
+    // Pixel values are relative to the parent, like in 0.4, and use its "%f" text format
+    const CEGUI::Sizef parentSize = pWindow->getParentPixelSize();
+    const CEGUI::Sizef pixelSize = pWindow->getPixelSize();
+    const float        x = CEGUI::CoordConverter::asAbsolute(pWindow->getXPosition(), parentSize.d_width);
+    const float        y = CEGUI::CoordConverter::asAbsolute(pWindow->getYPosition(), parentSize.d_height);
+
+    switch (type)
+    {
+        case ELegacyGeometry::UnifiedX:
+            strOut = FormatUDim(pWindow->getXPosition());
+            break;
+        case ELegacyGeometry::UnifiedY:
+            strOut = FormatUDim(pWindow->getYPosition());
+            break;
+        case ELegacyGeometry::UnifiedWidth:
+            strOut = FormatUDim(pWindow->getWidth());
+            break;
+        case ELegacyGeometry::UnifiedHeight:
+            strOut = FormatUDim(pWindow->getHeight());
+            break;
+        case ELegacyGeometry::AbsoluteX:
+            strOut = SString("%f", x);
+            break;
+        case ELegacyGeometry::AbsoluteY:
+            strOut = SString("%f", y);
+            break;
+        case ELegacyGeometry::AbsoluteWidth:
+            strOut = SString("%f", pixelSize.d_width);
+            break;
+        case ELegacyGeometry::AbsoluteHeight:
+            strOut = SString("%f", pixelSize.d_height);
+            break;
+        case ELegacyGeometry::AbsolutePosition:
+            strOut = SString("x:%f y:%f", x, y);
+            break;
+        case ELegacyGeometry::AbsoluteSize:
+            strOut = SString("w:%f h:%f", pixelSize.d_width, pixelSize.d_height);
+            break;
+        case ELegacyGeometry::AbsoluteRect:
+            strOut = SString("l:%f t:%f r:%f b:%f", x, y, x + pixelSize.d_width, y + pixelSize.d_height);
+            break;
+        default:
+            return false;
+    }
+    return true;
+}
+
+// Returns true when the name was one of ours (handled or rejected), false to fall through to setProperty.
+// A value that doesn't parse changes nothing, as setting an unknown property did before.
+static bool SetLegacyGeometryProperty(CEGUI::Window* pWindow, const char* szProperty, const char* szValue)
+{
+    const ELegacyGeometry type = GetLegacyGeometry(szProperty);
+    if (type == ELegacyGeometry::None)
+        return false;
+
+    float a = 0, b = 0, c = 0, d = 0;
+    switch (type)
+    {
+        case ELegacyGeometry::UnifiedX:
+        case ELegacyGeometry::UnifiedY:
+        case ELegacyGeometry::UnifiedWidth:
+        case ELegacyGeometry::UnifiedHeight:
+        {
+            if (sscanf(szValue, " { %f , %f }", &a, &b) != 2)
+                return true;
+            const CEGUI::UDim value(a, b);
+            if (type == ELegacyGeometry::UnifiedX)
+                pWindow->setXPosition(value);
+            else if (type == ELegacyGeometry::UnifiedY)
+                pWindow->setYPosition(value);
+            else if (type == ELegacyGeometry::UnifiedWidth)
+                pWindow->setWidth(value);
+            else
+                pWindow->setHeight(value);
+            return true;
+        }
+        case ELegacyGeometry::AbsoluteX:
+        case ELegacyGeometry::AbsoluteY:
+        case ELegacyGeometry::AbsoluteWidth:
+        case ELegacyGeometry::AbsoluteHeight:
+        {
+            if (sscanf(szValue, " %f", &a) != 1)
+                return true;
+            const CEGUI::UDim value(0, a);
+            if (type == ELegacyGeometry::AbsoluteX)
+                pWindow->setXPosition(value);
+            else if (type == ELegacyGeometry::AbsoluteY)
+                pWindow->setYPosition(value);
+            else if (type == ELegacyGeometry::AbsoluteWidth)
+                pWindow->setWidth(value);
+            else
+                pWindow->setHeight(value);
+            return true;
+        }
+        case ELegacyGeometry::AbsolutePosition:
+            if (sscanf(szValue, " x:%f y:%f", &a, &b) == 2)
+                pWindow->setPosition(CEGUI::UVector2(CEGUI::UDim(0, a), CEGUI::UDim(0, b)));
+            return true;
+        case ELegacyGeometry::AbsoluteSize:
+            if (sscanf(szValue, " w:%f h:%f", &a, &b) == 2)
+                pWindow->setSize(CEGUI::USize(CEGUI::UDim(0, a), CEGUI::UDim(0, b)));
+            return true;
+        case ELegacyGeometry::AbsoluteRect:
+            if (sscanf(szValue, " l:%f t:%f r:%f b:%f", &a, &b, &c, &d) == 4)
+                pWindow->setArea(CEGUI::URect(CEGUI::UDim(0, a), CEGUI::UDim(0, b), CEGUI::UDim(0, c), CEGUI::UDim(0, d)));
+            return true;
+        default:
+            return true;
+    }
+}
+
+// Scripts written for 0.4 compare read-back text, e.g. guiGetProperty(checkbox, "Selected") == "True".
+// Give back the 0.4 text where 0.8.7 changed it. Numbers ("0.9" vs "0.900000") are left alone: tonumber reads both.
+static CEGUI::String ToLegacyPropertyValue(CEGUI::Window* pWindow, const CEGUI::String& strName, const CEGUI::String& strValue)
+{
+    // 0.8.7 returns "" while the window uses the default font; 0.4 returned the name of the font in use
+    if (strName == "Font")
+    {
+        if (strValue.empty())
+        {
+            const CEGUI::Font* pFont = pWindow->getFont();
+            if (pFont)
+                return pFont->getName();
+        }
+        return strValue;
+    }
+
+    // 0.4 wrote booleans as True/False, 0.8.7 as true/false
+    if (strValue == "true" || strValue == "false")
+    {
+        const CEGUI::Property* pProperty = pWindow->getPropertyInstance(strName);
+        if (pProperty && pProperty->getDataType() == "bool")
+            return strValue == "true" ? "True" : "False";
+        return strValue;
+    }
+
+    // Properties named "...Colour" (NormalTextColour, ActiveSelectionColour, ...) were a single "AARRGGBB" colour in
+    // 0.4 but are corner sets in 0.8.7. "...Colours" (TextColours, ImageColours) were corner sets in 0.4 too.
+    // Only collapse when all corners match; a real gradient can't be written as one colour.
+    const size_t nameLength = strName.length();
+    if (nameLength > 6 && strName.compare(nameLength - 6, 6, "Colour") == 0 && strValue.compare(0, 3, "tl:") == 0)
+    {
+        const CEGUI::ColourRect colours = CEGUI::PropertyHelper<CEGUI::ColourRect>::fromString(strValue);
+        if (colours.isMonochromatic())
+            return SString("%08X", colours.d_top_left.getARGB()).c_str();
+    }
+
+    return strValue;
 }
 
 static std::string TranslateLegacyPropertyValue(const char* szValue)
@@ -657,6 +876,15 @@ static std::string TranslateLegacyPropertyValue(const char* szValue)
 void CGUIElement_Impl::SetProperty(const char* szProperty, const char* szValue)
 {
 #ifdef MTA_USE_CEGUI_NEXT
+    try
+    {
+        if (SetLegacyGeometryProperty(m_pWindow, szProperty, szValue ? szValue : ""))
+            return;
+    }
+    catch (const CEGUI::Exception&)
+    {
+        return;
+    }
     szProperty = TranslateLegacyPropertyName(szProperty);
     std::string strTranslatedValue = TranslateLegacyPropertyValue(szValue);
     szValue = strTranslatedValue.c_str();
@@ -673,13 +901,29 @@ void CGUIElement_Impl::SetProperty(const char* szProperty, const char* szValue)
 std::string CGUIElement_Impl::GetProperty(const char* szProperty)
 {
 #ifdef MTA_USE_CEGUI_NEXT
+    try
+    {
+        std::string strGeometry;
+        if (GetLegacyGeometryProperty(m_pWindow, szProperty, strGeometry))
+            return strGeometry;
+    }
+    catch (const CEGUI::Exception&)
+    {
+        return "";
+    }
     szProperty = TranslateLegacyPropertyName(szProperty);
 #endif
     CEGUI::String strValue;
     try
     {
+        const CEGUI::String strName = CGUI_Impl::GetUTFString(szProperty);
+#ifdef MTA_USE_CEGUI_NEXT
+        const CEGUI::String strRaw = ToLegacyPropertyValue(m_pWindow, strName, m_pWindow->getProperty(strName));
+#else
+        const CEGUI::String strRaw = m_pWindow->getProperty(strName);
+#endif
         // Return the string. std::string will copy it
-        strValue = CGUI_Impl::GetUTFString(m_pWindow->getProperty(CGUI_Impl::GetUTFString(szProperty)).c_str());
+        strValue = CGUI_Impl::GetUTFString(strRaw.c_str());
     }
     catch (const CEGUI::Exception&)
     {
@@ -702,6 +946,10 @@ void CGUIElement_Impl::FillProperties()
         try
         {
             strValue = m_pWindow->getProperty(strKey);
+#ifdef MTA_USE_CEGUI_NEXT
+            // Same 0.4-style text as guiGetProperty, so both functions agree
+            strValue = ToLegacyPropertyValue(m_pWindow, strKey, strValue);
+#endif
         }
         catch (const CEGUI::Exception&)
         {
