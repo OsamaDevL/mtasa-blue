@@ -206,7 +206,16 @@ void CGUIMemo_Impl::SetTextChangedHandler(const GUI_CALLBACK& Callback)
 bool CGUIMemo_Impl::Event_TextChanged(const CEGUI::EventArgs& e)
 {
     if (m_TextChanged)
+    {
+#ifdef MTA_USE_CEGUI_NEXT
+        // CEGUI 0.8.7 fires TextChanged before it lays out the new text (0.4 laid it out first).
+        // Handlers move the caret, e.g. the console keeps it at the end, and that uses the line
+        // layout. When the text got shorter (console history trim) the stale lines point past
+        // the end and CEGUI throws "Index is out of range", crashing the client. Lay out first.
+        reinterpret_cast<CEGUI::MultiLineEditbox*>(m_pWindow)->formatText(true);
+#endif
         m_TextChanged(reinterpret_cast<CGUIElement*>(this));
+    }
     return true;
 }
 
