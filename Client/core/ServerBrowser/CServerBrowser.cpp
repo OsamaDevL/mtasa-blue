@@ -414,6 +414,10 @@ CServerBrowser::~CServerBrowser()
     DeleteTab(ServerBrowserTypes::FAVOURITES);
     DeleteTab(ServerBrowserTypes::RECENTLY_PLAYED);
 
+    // DeleteTab removed the skeleton images that used these
+    SAFE_DELETE(m_pSkeletonShineTexture);
+    SAFE_DELETE(m_pSkeletonTexture);
+
     if (m_pGeneralHelpWindow)
     {
         m_pGeneralHelpWindow->SetVisible(false);
@@ -787,6 +791,10 @@ void CServerBrowser::CreateTab(ServerBrowserType type, const char* szName)
 
 void CServerBrowser::DeleteTab(ServerBrowserType type)
 {
+    // The skeleton bars are children of this tab's server list, so they must go first
+    if (m_SkeletonType == type)
+        DestroySkeleton();
+
     if (m_pButtonConnect[type])
     {
         m_pButtonConnect[type]->SetClickHandler(GUI_CALLBACK());
@@ -1148,6 +1156,8 @@ void CServerBrowser::Update()
         }
 
         ProcessPendingListRefreshes();
+
+        UpdateSkeleton(Type);
     }
 
     ProcessPendingConfigSave();
@@ -2800,6 +2810,208 @@ bool CServerBrowser::IsListRefreshInProgress(ServerBrowserType type) const
         return false;
 
     return m_ListRefreshState[index].bActive;
+}
+
+namespace
+{
+    // Rows fill the whole list. Their pitch follows the list's font, so the skeleton matches the real rows
+    // at any resolution and skin; these are only the proportions.
+    constexpr float SKELETON_ROW_PITCH_SCALE = 1.35f;  // Row pitch relative to the list font height
+    constexpr float SKELETON_BAR_HEIGHT_SCALE = 0.5f;  // Bar height relative to the row pitch
+    constexpr float SKELETON_MIN_ROW_PITCH = 16.0f;
+    constexpr float SKELETON_SHINE_WIDTH_SCALE = 0.12f;  // Shine width relative to the list width
+    constexpr float SKELETON_ROW_LAG_SCALE = 0.6f;       // Lower rows trail by this much of a row pitch: diagonal sweep
+
+    // Wait this long before showing, so a list that fills straight away (server cache) never flashes it
+    constexpr unsigned long SKELETON_SHOW_DELAY_MS = 150;
+    constexpr unsigned long SKELETON_SWEEP_MS = 1400;
+
+    // Bar lengths, repeated down the list, so the placeholders read as text rather than a grid
+    constexpr float SKELETON_NAME_FILL[] = {0.62f, 0.45f, 0.78f, 0.52f, 0.68f, 0.40f, 0.72f, 0.56f, 0.48f, 0.66f, 0.58f};
+    constexpr float SKELETON_GAME_FILL[] = {0.55f, 0.70f, 0.40f, 0.62f, 0.48f, 0.75f, 0.45f, 0.58f, 0.66f, 0.50f, 0.64f};
+}
+
+//
+// Show placeholder rows while a list is still refreshing and has nothing to show yet. Without them an
+// empty list during the master server download looks broken, especially when there is no server cache.
+//
+void CServerBrowser::UpdateSkeleton(ServerBrowserType type)
+{
+    CServerList*        pList = GetServerList(type);
+    CGUIGridList*       pGrid = m_pServerList[type];
+    const unsigned long ulNow = CClientTime::GetTime();
+
+    // Real rows always win. A filter change or a sort clears the grid and refills it over several frames,
+    // so while that batch runs the skeleton may stay but never newly appear.
+    bool bWanted;
+    if (!pList || !pGrid || pGrid->GetRowCount() > 0)
+        bWanted = false;
+    else if (IsListRefreshInProgress(type))
+        bWanted = m_bSkeletonVisible && m_SkeletonType == type;
+    else
+        bWanted = pList->IsRefreshing();
+
+    if (!bWanted)
+    {
+        m_ulSkeletonWantedSince = 0;
+        if (m_bSkeletonVisible)
+        {
+            for (SSkeletonBar& bar : m_SkeletonBars)
+                bar.pBar->SetVisible(false);
+            m_bSkeletonVisible = false;
+        }
+        return;
+    }
+
+    if (m_ulSkeletonWantedSince == 0)
+        m_ulSkeletonWantedSince = ulNow;
+
+    // Rebuild for another tab, or when the list changed size since the bars were laid out
+    const CVector2D listSize = pGrid->GetSize(false);
+    const bool      bLayoutStale = m_SkeletonType != type || listSize.fX != m_SkeletonListSize.fX || listSize.fY != m_SkeletonListSize.fY;
+
+    if (!m_bSkeletonVisible || bLayoutStale)
+    {
+        if (!m_bSkeletonVisible && ulNow - m_ulSkeletonWantedSince < SKELETON_SHOW_DELAY_MS)
+            return;
+
+        if (m_SkeletonBars.empty() || bLayoutStale)
+            CreateSkeleton(type);
+
+        for (SSkeletonBar& bar : m_SkeletonBars)
+            bar.pBar->SetVisible(true);
+        m_bSkeletonVisible = true;
+    }
+
+    // Move the shine across the list. Each shine is a child of its bar, so the bar clips it.
+    const float fTravel = listSize.fX + m_fSkeletonShineWidth * 2 + m_fSkeletonRowLag * m_iSkeletonRows;
+    const float fPhase = static_cast<float>(ulNow % SKELETON_SWEEP_MS) / SKELETON_SWEEP_MS;
+
+    for (SSkeletonBar& bar : m_SkeletonBars)
+    {
+        const float fCentre = fPhase * fTravel - m_fSkeletonShineWidth - bar.iRow * m_fSkeletonRowLag;
+        bar.pShine->SetPosition(CVector2D(fCentre - m_fSkeletonShineWidth / 2 - bar.fX, 0), false);
+    }
+}
+
+void CServerBrowser::CreateSkeleton(ServerBrowserType type)
+{
+    DestroySkeleton();
+
+    CGUIGridList* pGrid = m_pServerList[type];
+    if (!pGrid)
+        return;
+
+    CGUI* pManager = g_pCore->GetGUI();
+
+    if (!m_pSkeletonTexture)
+    {
+        // Mid grey with alpha shows on the dark skins and on the lighter GWEN ones
+        unsigned long ulBarColor = COLOR_ARGB(70, 140, 140, 140);
+        m_pSkeletonTexture = pManager->CreateTexture();
+        m_pSkeletonTexture->LoadFromMemory(&ulBarColor, 1, 1);
+
+        // A white band that fades in and out, stretched over the shine image
+        constexpr unsigned int uiShineSteps = 32;
+        unsigned long          shine[uiShineSteps];
+        for (unsigned int i = 0; i < uiShineSteps; ++i)
+        {
+            const float f = std::sin(3.14159265f * (i + 0.5f) / uiShineSteps);
+            shine[i] = COLOR_ARGB(static_cast<unsigned char>(70 * f * f), 255, 255, 255);
+        }
+        m_pSkeletonShineTexture = pManager->CreateTexture();
+        m_pSkeletonShineTexture->LoadFromMemory(shine, uiShineSteps, 1);
+    }
+
+    // Line the bars up with the Name, Players, Ping and Gamemode columns
+    float fVersion = 0, fLocked = 0, fName = 0, fPlayers = 0, fPing = 0, fGame = 0;
+    pGrid->GetColumnWidth(m_hVersion[type], fVersion, false);
+    pGrid->GetColumnWidth(m_hLocked[type], fLocked, false);
+    pGrid->GetColumnWidth(m_hName[type], fName, false);
+    pGrid->GetColumnWidth(m_hPlayers[type], fPlayers, false);
+    pGrid->GetColumnWidth(m_hPing[type], fPing, false);
+    pGrid->GetColumnWidth(m_hGame[type], fGame, false);
+
+    const float fNameX = fVersion + fLocked;
+    const float fPlayersX = fNameX + fName;
+    const float fPingX = fPlayersX + fPlayers;
+    const float fGameX = fPingX + fPing;
+
+    // Size rows from the fonts the list uses: rows use the default font, the column header the small one
+    const CVector2D listSize = pGrid->GetSize(false);
+    CGUIFont*       pRowFont = pManager->GetDefaultFont();
+    CGUIFont*       pHeaderFont = pManager->GetSmallFont();
+    const float     fRowPitch = std::max(SKELETON_MIN_ROW_PITCH, (pRowFont ? pRowFont->GetFontHeight() : 14.0f) * SKELETON_ROW_PITCH_SCALE);
+    const float     fBarHeight = std::round(fRowPitch * SKELETON_BAR_HEIGHT_SCALE);
+    const float     fTop = (pHeaderFont ? pHeaderFont->GetFontHeight() : 12.0f) + 12.0f;  // Below the column header
+
+    m_iSkeletonRows = std::max(0, static_cast<int>((listSize.fY - fTop) / fRowPitch));
+    m_fSkeletonShineWidth = std::max(40.0f, listSize.fX * SKELETON_SHINE_WIDTH_SCALE);
+    m_fSkeletonRowLag = fRowPitch * SKELETON_ROW_LAG_SCALE;
+    m_SkeletonListSize = listSize;
+
+    for (int iRow = 0; iRow < m_iSkeletonRows; ++iRow)
+    {
+        const float fY = std::round(fTop + iRow * fRowPitch + (fRowPitch - fBarHeight) / 2);
+        const float fNameFill = SKELETON_NAME_FILL[iRow % std::size(SKELETON_NAME_FILL)];
+        const float fGameFill = SKELETON_GAME_FILL[iRow % std::size(SKELETON_GAME_FILL)];
+
+        auto addBar = [&](float fX, float fWidth)
+        {
+            if (fWidth < 4)
+                return;
+
+            SSkeletonBar bar;
+            bar.fX = fX;
+            bar.fWidth = fWidth;
+            bar.iRow = iRow;
+
+            bar.pBar = pManager->CreateStaticImage(pGrid);
+            bar.pBar->LoadFromTexture(m_pSkeletonTexture);
+            bar.pBar->SetPosition(CVector2D(fX, fY), false);
+            bar.pBar->SetSize(CVector2D(fWidth, fBarHeight), false);
+            bar.pBar->SetZOrderingEnabled(false);
+            bar.pBar->SetVisible(false);
+
+            bar.pShine = pManager->CreateStaticImage(bar.pBar);
+            bar.pShine->LoadFromTexture(m_pSkeletonShineTexture);
+            bar.pShine->SetSize(CVector2D(m_fSkeletonShineWidth, fBarHeight), false);
+            bar.pShine->SetPosition(CVector2D(-m_fSkeletonShineWidth, 0), false);
+            bar.pShine->SetZOrderingEnabled(false);
+
+            m_SkeletonBars.push_back(bar);
+        };
+
+        addBar(fNameX + 6, (fName - 12) * fNameFill);
+        addBar(fPlayersX + 6, std::min(44.0f, fPlayers - 12));
+        addBar(fPingX + 4, std::min(22.0f, fPing - 8));
+        addBar(fGameX + 6, (fGame - 12) * fGameFill);
+    }
+
+    m_SkeletonType = type;
+}
+
+void CServerBrowser::DestroySkeleton()
+{
+    // Delete each shine before its bar, and the bars before their list, so no wrapper is left pointing at
+    // a CEGUI window that was destroyed together with its parent
+    for (SSkeletonBar& bar : m_SkeletonBars)
+    {
+        if (bar.pShine)
+        {
+            bar.pShine->Clear();
+            SAFE_DELETE(bar.pShine);
+        }
+        if (bar.pBar)
+        {
+            bar.pBar->Clear();
+            SAFE_DELETE(bar.pBar);
+        }
+    }
+
+    m_SkeletonBars.clear();
+    m_bSkeletonVisible = false;
+    m_ulSkeletonWantedSince = 0;
 }
 
 std::size_t CServerBrowser::GetListRefreshBatchSize() const

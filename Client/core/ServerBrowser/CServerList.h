@@ -382,6 +382,7 @@ public:
     std::string& GetStatus() { return m_strStatus; };
     bool         IsUpdated() { return m_bUpdated; };
     void         SetUpdated(bool bUpdated) { m_bUpdated = bUpdated; };
+    bool         IsRefreshing() const { return m_iPass != 0; }  // Master list or server queries still running
     int          GetRevision() { return m_iRevision; }
     void         SortByASEVersion();
     void         Sort(unsigned int uiColumn, int direction);

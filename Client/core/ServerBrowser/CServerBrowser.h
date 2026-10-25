@@ -263,6 +263,9 @@ private:
     void                      UpdateSortState(ServerBrowserType type);
     void                      ApplyListSort(ServerBrowserType type, unsigned int uiColumn, SortDirection direction, bool bUpdateStoredState = false);
     [[nodiscard]] bool        IsListRefreshInProgress(ServerBrowserType type) const;
+    void                      UpdateSkeleton(ServerBrowserType type);
+    void                      CreateSkeleton(ServerBrowserType type);
+    void                      DestroySkeleton();
     [[nodiscard]] std::size_t GetListRefreshBatchSize() const;
     [[nodiscard]] std::size_t GetHiddenListRefreshBatchSize() const;
     [[nodiscard]] bool        ShouldUseHiddenRefreshAcceleration() const;
@@ -338,6 +341,27 @@ private:
     unsigned long     m_ulNextListLayoutTime[SERVER_BROWSER_TYPE_COUNT] = {};
     unsigned long     m_ulHiddenRefreshBoostEnableTime = 0;
     int               m_iIgnoreSortCallbacks = 0;
+
+    // Skeleton rows: grey placeholder bars with a moving shine, drawn over a server list while it is
+    // still refreshing and has no rows yet. One set exists at a time, on the tab that needs it.
+    struct SSkeletonBar
+    {
+        CGUIStaticImage* pBar = nullptr;
+        CGUIStaticImage* pShine = nullptr;
+        float            fX = 0;
+        float            fWidth = 0;
+        int              iRow = 0;
+    };
+    std::vector<SSkeletonBar> m_SkeletonBars;
+    CGUITexture*              m_pSkeletonTexture = nullptr;
+    CGUITexture*              m_pSkeletonShineTexture = nullptr;
+    ServerBrowserType         m_SkeletonType = ServerBrowserTypes::INTERNET;
+    bool                      m_bSkeletonVisible = false;
+    unsigned long             m_ulSkeletonWantedSince = 0;
+    CVector2D                 m_SkeletonListSize;  // List size the bars were laid out for
+    int                       m_iSkeletonRows = 0;
+    float                     m_fSkeletonShineWidth = 0;
+    float                     m_fSkeletonRowLag = 0;
 
     // Player list retry tracking - retry queries for servers that haven't responded with player data
     CServerListItem*          m_pLastSelectedServerForPlayerList[SERVER_BROWSER_TYPE_COUNT] = {};
