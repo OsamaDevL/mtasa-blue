@@ -41,9 +41,9 @@
 // Create GUI items
 //
 ///////////////////////////////////////////////////////////////
-CLanguageSelector::CLanguageSelector(CGUIElement* pMainMenuCanvas)
+CLanguageSelector::CLanguageSelector(CGUIElement* pMainMenuCanvas, const CVector2D* pvecButtonPos)
 {
-    CreateGUI(pMainMenuCanvas);
+    CreateGUI(pMainMenuCanvas, pvecButtonPos);
 }
 
 ///////////////////////////////////////////////////////////////
@@ -83,13 +83,13 @@ CLanguageSelector::~CLanguageSelector()
 // Create GUI items
 //
 ///////////////////////////////////////////////////////////////
-void CLanguageSelector::CreateGUI(CGUIElement* pMainMenuCanvas)
+void CLanguageSelector::CreateGUI(CGUIElement* pMainMenuCanvas, const CVector2D* pvecButtonPos)
 {
     //
     // Create current language button
     //
     CVector2D vecButtonSize(ITEM_SIZE_X + BUTTON_MARGIN_X * 2, ITEM_SIZE_Y + BUTTON_MARGIN_Y * 2);
-    CVector2D vecButtonPos = pMainMenuCanvas->GetSize() - vecButtonSize - CVector2D(10, 3);
+    CVector2D vecButtonPos = pvecButtonPos ? *pvecButtonPos : pMainMenuCanvas->GetSize() - vecButtonSize - CVector2D(10, 3);
     {
         m_pButtonWindow = reinterpret_cast<CGUIScrollPane*>(g_pCore->GetGUI()->CreateScrollPane(pMainMenuCanvas));
         m_pButtonWindow->SetPosition(vecButtonPos);
@@ -161,7 +161,9 @@ void CLanguageSelector::CreateGUI(CGUIElement* pMainMenuCanvas)
         CVector2D  vecListSize;
         vecListSize.fX = LIST_MARGIN_X * 2 + uiNumColums * ITEM_SIZE_X + (uiNumColums - 1) * LIST_ITEM_SPACING_X;
         vecListSize.fY = LIST_MARGIN_Y * 2 + uiNumRows * ITEM_SIZE_Y + (uiNumRows - 1) * LIST_ITEM_SPACING_Y;
-        CVector2D vecListPos = CVector2D(vecButtonPos.fX + vecButtonSize.fX - vecListSize.fX, vecButtonPos.fY - vecListSize.fY + 2);
+        // Open upwards from the corner button, or downwards (left-aligned) from a button placed near the top
+        CVector2D vecListPos = pvecButtonPos ? CVector2D(vecButtonPos.fX, vecButtonPos.fY + vecButtonSize.fY - 2)
+                                             : CVector2D(vecButtonPos.fX + vecButtonSize.fX - vecListSize.fX, vecButtonPos.fY - vecListSize.fY + 2);
         m_pListWindow->SetPosition(vecListPos);
         m_pListWindow->SetSize(vecListSize);
 

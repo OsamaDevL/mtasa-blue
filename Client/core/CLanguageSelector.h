@@ -27,12 +27,14 @@ class CLanguageSelector
 {
 public:
     ZERO_ON_NEW
-    CLanguageSelector(CGUIElement* pMainMenuCanvas);
+    // By default the button sits in the bottom-right corner and the list opens upwards. With pvecButtonPos
+    // the button goes there instead and the list opens downwards (used by the modern main menu).
+    CLanguageSelector(CGUIElement* pMainMenuCanvas, const CVector2D* pvecButtonPos = nullptr);
     ~CLanguageSelector();
     void DoPulse();
 
 protected:
-    void           CreateGUI(CGUIElement* pMainMenuCanvas);
+    void           CreateGUI(CGUIElement* pMainMenuCanvas, const CVector2D* pvecButtonPos);
     CLangListItem  CreateGUILangItem(CGUIElement* pGUIParent, const CVector2D& vecPanePosition, const SString& strLocale = "");
     void           SetLanguageListVisible(bool bVisible);
     CLangListItem* GetListItemByIndex(uint uiIndex);

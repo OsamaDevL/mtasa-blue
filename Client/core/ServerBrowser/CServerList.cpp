@@ -362,6 +362,30 @@ void CServerListInternet::Pulse()
     }
 }
 
+// The master list already carries each server's player counts, so the main menu only needs this one
+// download (pass 1), not the per-server queries that pass 2 sends while the browser is open
+bool CServerListInternet::PulseMasterListOnly()
+{
+    if (m_iPass == 1)
+        Pulse();
+    return m_iPass != 1;
+}
+
+void CServerList::GetPlayerTotals(unsigned int& uiPlayers, unsigned int& uiServers)
+{
+    uiPlayers = 0;
+    uiServers = 0;
+    for (auto it = m_Servers.begin(); it != m_Servers.end(); ++it)
+    {
+        const CServerListItem* pServer = *it;
+        if (pServer && pServer->nMaxPlayers > 0)
+        {
+            uiServers++;
+            uiPlayers += pServer->nPlayers;
+        }
+    }
+}
+
 ///////////////////////////////////////////////////////////////
 //
 // CServerListInternet::RemoveNonResponding

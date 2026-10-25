@@ -99,6 +99,22 @@ private:
     bool OnQuitButtonClick(CGUIElement* pElement);
     bool OnNewsButtonClick(CGUIElement* pElement);
 
+    // Runs a menu item's action; shared by the classic image items and the modern text items
+    bool HandleMenuItemClick(unsigned char menuType, CGUIElement* pElement, CGUIMouse::MouseButton button);
+
+    // Modern layout (cgui_modern_interface): text items in a bottom bar over a full-screen background
+    void             CreateModernLayout();
+    void             DestroyModernLayout();
+    void             LayoutModernItems();
+    void             UpdateModernItems(unsigned long ulTimePassed);
+    void             UpdateModernStatus();
+    CGUIFont*        CreateModernFont(const char* szName, const char* szFile, float fPixelSize);
+    CGUILabel*       CreateModernLabel(const SString& strText);
+    CGUIStaticImage* CreateModernItemImage(const char* szFilename, const char* szLocalFallback = nullptr);
+    bool             OnModernItemClick(CGUIMouseEventArgs Args);
+    bool             OnModernItemEnter(CGUIElement* pElement);
+    bool             OnModernItemLeave(CGUIElement* pElement);
+
     void HideServerInfo();
 
     CGUI* m_pManager;
@@ -168,6 +184,33 @@ private:
     CGUILabel* m_pNewsItemShadowLabels[CORE_MTA_NEWS_ITEMS];
     CGUILabel* m_pNewsItemDateLabels[CORE_MTA_NEWS_ITEMS];
     CGUILabel* m_pNewsItemNEWLabels[CORE_MTA_NEWS_ITEMS];
+
+    // Modern layout state
+    struct SModernItem
+    {
+        unsigned char menuType;
+        CGUIElement*  pElement;
+        bool          bRightSide;  // ABOUT and QUIT are anchored to the right edge
+        float         fAlpha;
+        float         fTargetAlpha;
+    };
+    bool                     m_bModernLayout = false;
+    float                    m_fModernScale = 1.0f;
+    CGUIStaticImage*         m_pModernCanvas = nullptr;
+    CGUIStaticImage*         m_pModernTitle = nullptr;
+    CGUILabel*               m_pModernSubtitle = nullptr;
+    std::vector<SModernItem> m_modernItems;
+    CGUIFont*                m_pModernSmallFont = nullptr;
+    CGUIStaticImage*         m_pModernStatusDot = nullptr;
+    CGUILabel*               m_pModernStatus = nullptr;
+    enum class EModernStatus
+    {
+        NOT_STARTED,
+        FETCHING,
+        DONE
+    } m_eModernStatus = EModernStatus::NOT_STARTED;
+
+    SModernItem* FindModernItem(CGUIElement* pElement);
 
 #ifdef CI_BUILD
     std::unique_ptr<CGUITexture>     m_pFeatureBranchAlertTexture;

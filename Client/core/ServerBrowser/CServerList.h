@@ -387,6 +387,12 @@ public:
     void         Sort(unsigned int uiColumn, int direction);
     void         RetryNonRespondingServers();  // Reset no-reply counters for cached servers
 
+    // For the main menu status line: totals over servers that reported a player limit (same rule as Pulse)
+    void GetPlayerTotals(unsigned int& uiPlayers, unsigned int& uiServers);
+    bool IsMasterListPending() const { return m_iPass == 1; }
+    // Advances only the master list download, never the per-server queries. Returns true once it is done.
+    virtual bool PulseMasterListOnly() { return true; }
+
 protected:
     bool                m_bUpdated;
     int                 m_iPass;
@@ -410,6 +416,7 @@ public:
     void SuspendActivity() override;
     bool RemoveNonResponding() override;
     bool IsMasterServerOffline() const { return m_bMasterServerOffline; }
+    bool PulseMasterListOnly() override;
 
 private:
     CMasterServerManagerInterface* m_pMasterServerManager;

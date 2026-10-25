@@ -50,6 +50,25 @@
 #define CORE_MTA_FILLER    "cgui\\images\\mta_filler.png"
 #define CORE_MTA_VERSION   "cgui\\images\\version.png"
 
+// Modern layout (cgui_modern_interface). Positions and sizes come from the 1920x1080 design.
+#define CORE_MTA_MODERN_BG_1080    "cgui\\images\\modern\\background_1080.jpg"
+#define CORE_MTA_MODERN_BG_2160    "cgui\\images\\modern\\background_2160.jpg"
+#define CORE_MTA_MODERN_TITLE      "cgui\\images\\modern\\title.png"  // lettering cut from background_logo.png
+#define CORE_MTA_MODERN_GEAR       "cgui\\images\\modern\\gear.png"
+#define CORE_MTA_MODERN_STATUS_DOT "cgui\\images\\modern\\status_dot.png"
+
+static constexpr float MODERN_REF_X = 1920.0f;
+static constexpr float MODERN_REF_Y = 1080.0f;
+// Above this height the 4K images are used; below it the 1080p ones save memory in this 32-bit process
+static constexpr float MODERN_HIGHRES_MIN_Y = 1440.0f;
+static constexpr float MODERN_ITEM_ALPHA = 0.55f;
+static constexpr float MODERN_ITEM_HOVER_ALPHA = 1.0f;
+static constexpr float MODERN_HOVER_FADE_MS = 150.0f;
+// The classic menu_*.png images are 34px tall; this brings their lettering to the design's 29px text size
+static constexpr float MODERN_ITEM_IMAGE_SCALE = 0.66f;
+
+static constexpr const char* MODERN_SMALL_FONT_NAME = "modern-menu-small";
+
 static const SColor headlineColors[] = {SColorRGBA(233, 234, 106, 255), SColorRGBA(233 / 6 * 4, 234 / 6 * 4, 106 / 6 * 4, 255),
                                         SColorRGBA(233 / 7 * 3, 234 / 7 * 3, 106 / 7 * 3, 255)};
 
@@ -284,13 +303,26 @@ CMainMenu::CMainMenu(CGUI* pManager)
 
     m_pLogo->MoveToBack();
 
+    // The classic items above are still created in modern mode (other code expects them), but they live
+    // on m_pCanvas, which stays hidden while the modern layout is used
+    m_bModernLayout = g_pCore->GetCVars()->GetValue("cgui_modern_interface", false);
+    if (m_bModernLayout)
+        CreateModernLayout();
+
     // Submenus
     m_ServerBrowser.SetVisible(false);
     m_ServerInfo.Hide();
     m_Settings.SetVisible(false);
     m_Credits.SetVisible(false);
     m_pNewsBrowser->SetVisible(false);
-    m_pLanguageSelector = new CLanguageSelector(m_pCanvas);
+    if (m_bModernLayout)
+    {
+        // Top left, under the title; the icon lands on the design's (85, 256)
+        const CVector2D vecButtonPos = CVector2D(55.0f, 251.0f) * m_fModernScale;
+        m_pLanguageSelector = new CLanguageSelector(m_pModernCanvas, &vecButtonPos);
+    }
+    else
+        m_pLanguageSelector = new CLanguageSelector(m_pCanvas);
 
     // We're not ingame
     SetIsIngame(false);
@@ -387,8 +419,11 @@ CMainMenu::~CMainMenu()
         m_pDisconnect = nullptr;
     }
 
+    // The selector first: in the modern layout its button and list are children of m_pModernCanvas
     delete m_pLanguageSelector;
     m_pLanguageSelector = nullptr;
+
+    DestroyModernLayout();
 
     delete m_pNewsBrowser;
     m_pNewsBrowser = nullptr;
@@ -431,6 +466,12 @@ void CMainMenu::SetMenuVerticalPosition(int iPosY)
 
 void CMainMenu::SetMenuUnhovered()  // Dehighlight all our items
 {
+    for (SModernItem& item : m_modernItems)
+    {
+        item.fAlpha = item.fTargetAlpha = MODERN_ITEM_ALPHA;
+        item.pElement->SetAlpha(MODERN_ITEM_ALPHA);
+    }
+
     SetItemHoverProgress(m_pDisconnect, 0, false);
     m_pHoveredItem = NULL;
     std::deque<sMenuItem*>::iterator it = m_menuItems.begin();
@@ -551,6 +592,12 @@ void CMainMenu::Update()
         }
     }
 
+    if (m_bModernLayout)
+    {
+        UpdateModernItems(ulTimePassed);
+        UpdateModernStatus();
+    }
+
     if (m_iMoveStartPos)
     {
         float fTickDifference = ulCurrentTick - m_ulMoveStartTick;
@@ -596,6 +643,8 @@ void CMainMenu::Update()
         m_pFiller2->SetAlpha(Clamp<float>(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
         m_pCanvas->SetAlpha(Clamp<float>(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
         m_pBackground->SetAlpha(Clamp<float>(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
+        if (m_pModernCanvas)
+            m_pModernCanvas->SetAlpha(Clamp<float>(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
 
         if (m_fFader > 0.0f)
         {
@@ -630,6 +679,8 @@ void CMainMenu::Update()
         m_pFiller2->SetAlpha(Clamp(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
         m_pCanvas->SetAlpha(Clamp(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
         m_pBackground->SetAlpha(Clamp(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
+        if (m_pModernCanvas)
+            m_pModernCanvas->SetAlpha(Clamp(0.f, m_fFader, CORE_MTA_BG_MAX_ALPHA));
 
         if (m_fFader < 1.0f)
         {
@@ -649,6 +700,8 @@ void CMainMenu::Update()
             m_pFiller2->SetVisible(false);
             m_pCanvas->SetVisible(false);
             m_pBackground->SetVisible(false);
+            if (m_pModernCanvas)
+                m_pModernCanvas->SetVisible(false);
         }
     }
 
@@ -758,8 +811,10 @@ void CMainMenu::SetVisible(bool bVisible, bool bOverlay, bool bFrameDelay)
         SetMenuUnhovered();
         m_pFiller->SetVisible(true);
         m_pFiller2->SetVisible(true);
-        m_pCanvas->SetVisible(true);
+        m_pCanvas->SetVisible(!m_bModernLayout);
         m_pBackground->SetVisible(true);
+        if (m_pModernCanvas)
+            m_pModernCanvas->SetVisible(true);
     }
 
     m_bHideGame = !bOverlay;
@@ -801,6 +856,10 @@ void CMainMenu::SetIsIngame(bool bIsIngame)
             m_iMoveTargetPos = m_iFirstItemCentre;
         }
         m_iMoveStartPos = m_menuAY;
+
+        // DISCONNECT is only shown in game, so the bottom bar has to reflow
+        if (m_bModernLayout)
+            LayoutModernItems();
     }
 }
 
@@ -823,13 +882,16 @@ bool CMainMenu::OnMenuExit(CGUIElement* pElement)
 
 bool CMainMenu::OnMenuClick(CGUIMouseEventArgs Args)
 {
-    CGUIElement* pElement = Args.pWindow;
-
     // Only handle all our clicks to the menu from here
     if (!m_pHoveredItem)
         return true;
 
-    if (Args.button != LeftButton && m_pHoveredItem->menuType != MENU_ITEM_QUICK_CONNECT)
+    return HandleMenuItemClick(m_pHoveredItem->menuType, Args.pWindow, Args.button);
+}
+
+bool CMainMenu::HandleMenuItemClick(unsigned char menuType, CGUIElement* pElement, CGUIMouse::MouseButton button)
+{
+    if (button != CGUIMouse::LeftButton && menuType != MENU_ITEM_QUICK_CONNECT)
         return true;
 
     // For detecting startup problems
@@ -838,22 +900,22 @@ bool CMainMenu::OnMenuClick(CGUIMouseEventArgs Args)
     // Possible disconnect question for user
     if (g_pCore->IsConnected())
     {
-        switch (m_pHoveredItem->menuType)
+        switch (menuType)
         {
             case MENU_ITEM_HOST_GAME:
             case MENU_ITEM_MAP_EDITOR:
-                AskUserIfHeWantsToDisconnect(m_pHoveredItem->menuType);
+                AskUserIfHeWantsToDisconnect(menuType);
                 return true;
             case MENU_ITEM_DISCONNECT:
                 if (g_pCore->GetCVars()->GetValue("ask_before_disconnect", true))
                 {
-                    AskUserIfHeWantsToDisconnect(m_pHoveredItem->menuType);
+                    AskUserIfHeWantsToDisconnect(menuType);
                     return true;
                 }
 
                 break;
             case MENU_ITEM_QUICK_CONNECT:
-                AskUserIfHeWantsToDisconnect(m_pHoveredItem->menuType);
+                AskUserIfHeWantsToDisconnect(menuType);
                 return true;
             default:
                 break;
@@ -861,7 +923,7 @@ bool CMainMenu::OnMenuClick(CGUIMouseEventArgs Args)
     }
     else if (!g_pCore->IsNetworkReady())
     {
-        switch (m_pHoveredItem->menuType)
+        switch (menuType)
         {
             // case MENU_ITEM_QUICK_CONNECT:  // We only prevent it for left click in OnQuickConnectButtonClick.
             case MENU_ITEM_HOST_GAME:
@@ -873,13 +935,13 @@ bool CMainMenu::OnMenuClick(CGUIMouseEventArgs Args)
         }
     }
 
-    switch (m_pHoveredItem->menuType)
+    switch (menuType)
     {
         case MENU_ITEM_DISCONNECT:
             OnDisconnectButtonClick();
             break;
         case MENU_ITEM_QUICK_CONNECT:
-            OnQuickConnectButtonClick(pElement, Args.button == LeftButton);
+            OnQuickConnectButtonClick(pElement, button == CGUIMouse::LeftButton);
             break;
         case MENU_ITEM_BROWSE_SERVERS:
             OnBrowseServersButtonClick(pElement);
@@ -1066,6 +1128,316 @@ bool CMainMenu::OnNewsButtonClick(CGUIElement* pElement)
     m_pNewsBrowser->SwitchToTab(iIndex);
 
     return true;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// Modern layout
+//
+// Reuses the classic per-language item images (rendered in Inter, MTA's official font), so no new
+// fonts are shipped, and the same click actions (HandleMenuItemClick). Everything scales with the screen.
+//
+///////////////////////////////////////////////////////////////
+CGUIFont* CMainMenu::CreateModernFont(const char* szName, const char* szFile, float fPixelSize)
+{
+    // CEGUI sizes fonts in points at 96 DPI; the design is in pixels
+    const unsigned int uiPoints = static_cast<unsigned int>(std::max(6.0f, std::round(fPixelSize * 72.0f / 96.0f)));
+    try
+    {
+        return m_pManager->CreateFnt(szName, szFile, uiPoints);
+    }
+    catch (...)
+    {
+        WriteDebugEvent(SString("CMainMenu: could not load font %s (%s)", szName, szFile));
+        return nullptr;
+    }
+}
+
+CGUILabel* CMainMenu::CreateModernLabel(const SString& strText)
+{
+    CGUILabel* pLabel = reinterpret_cast<CGUILabel*>(m_pManager->CreateLabel(m_pModernCanvas, strText));
+    pLabel->SetFont(m_pModernSmallFont ? MODERN_SMALL_FONT_NAME : "default-normal");
+    pLabel->SetTextColor(255, 255, 255);
+    pLabel->SetSize(CVector2D(pLabel->GetTextExtent() + 2.0f, pLabel->GetFontHeight() + 2.0f), false);
+    pLabel->SetZOrderingEnabled(false);
+    return pLabel;
+}
+
+CGUIStaticImage* CMainMenu::CreateModernItemImage(const char* szFilename, const char* szLocalFallback)
+{
+    CGUIStaticImage* pImage = reinterpret_cast<CGUIStaticImage*>(m_pManager->CreateStaticImage(m_pModernCanvas));
+
+    // Same lookup as CreateItem: the current language, falling back to en_US. szLocalFallback is tried in
+    // the current language first, so a translated older image beats an English new one.
+    const SString strLanguageDir = g_pCore->GetLocalization()->GetLanguageDirectory();
+    if (!pImage->LoadFromFile(PathJoin(strLanguageDir, szFilename)) && !(szLocalFallback && pImage->LoadFromFile(PathJoin(strLanguageDir, szLocalFallback))))
+    {
+        auto pLanguage = g_pLocalization->GetLanguage("en_US");
+        pImage->LoadFromFile(PathJoin(g_pCore->GetLocalization()->GetLanguageDirectory(pLanguage), szFilename));
+    }
+
+    CVector2D vecNative;
+    pImage->GetNativeSize(vecNative);
+    pImage->SetSize(vecNative * (MODERN_ITEM_IMAGE_SCALE * m_fModernScale), false);
+    pImage->SetZOrderingEnabled(false);
+    return pImage;
+}
+
+void CMainMenu::CreateModernLayout()
+{
+    const CVector2D screen = m_ScreenSize;
+    // One scale for the whole layout, from the tighter axis, so it also fits 4:3 and 5:4 screens
+    m_fModernScale = std::min(screen.fX / MODERN_REF_X, screen.fY / MODERN_REF_Y);
+    const float s = m_fModernScale;
+    const bool  bHighRes = screen.fY > MODERN_HIGHRES_MIN_Y;
+
+    // Background covers the screen and crops the overflow, instead of stretching it
+    if (m_pBackground->LoadFromFile(bHighRes ? CORE_MTA_MODERN_BG_2160 : CORE_MTA_MODERN_BG_1080))
+    {
+        const float     fCover = std::max(screen.fX / MODERN_REF_X, screen.fY / MODERN_REF_Y);
+        const CVector2D vecSize(MODERN_REF_X * fCover, MODERN_REF_Y * fCover);
+        m_pBackground->SetSize(vecSize, false);
+        m_pBackground->SetPosition((screen - vecSize) * 0.5f, false);
+    }
+
+    // A plain full-screen container (an empty static image), so the items are direct children of one window
+    m_pModernCanvas = reinterpret_cast<CGUIStaticImage*>(m_pManager->CreateStaticImage());
+    m_pModernCanvas->SetPosition(CVector2D(0, 0), false);
+    m_pModernCanvas->SetSize(screen, false);
+    m_pModernCanvas->SetZOrderingEnabled(false);
+    m_pModernCanvas->SetAlwaysOnTop(true);
+    m_pModernCanvas->MoveToBack();
+    m_pModernCanvas->SetVisible(false);
+
+    // Small text uses Windows' Tahoma (as the classic GUI does), so nothing new is shipped
+    m_pModernSmallFont = CreateModernFont(MODERN_SMALL_FONT_NAME, PathJoin(GetSystemWindowsPath(), "fonts", "tahoma.ttf"), 15.0f * s);
+
+    // Title: the "Multi Theft Auto" lettering from the classic logo, sized to the design (860px wide at 1080p)
+    m_pModernTitle = reinterpret_cast<CGUIStaticImage*>(m_pManager->CreateStaticImage(m_pModernCanvas));
+    if (m_pModernTitle->LoadFromFile(CORE_MTA_MODERN_TITLE))
+    {
+        CVector2D vecNative;
+        m_pModernTitle->GetNativeSize(vecNative);
+        const float fWidth = 860.0f * s;
+        m_pModernTitle->SetSize(CVector2D(fWidth, vecNative.fY * fWidth / vecNative.fX), false);
+        m_pModernTitle->SetPosition(CVector2D(66.0f, 92.0f) * s, false);
+    }
+    m_pModernTitle->SetZOrderingEnabled(false);
+
+    // "Grand Theft Auto: San Andreas(TM) (C) 2005 Rockstar Games, Inc."
+    m_pModernSubtitle = CreateModernLabel("Grand Theft Auto: San Andreas\xE2\x84\xA2 \xC2\xA9 2005 Rockstar Games, Inc.");
+    m_pModernSubtitle->SetPosition(CVector2D(66.0f, 210.0f) * s, false);
+    m_pModernSubtitle->SetAlpha(0.74f);
+
+    // Players online (top right): hidden until the master server list has arrived, see UpdateModernStatus
+    m_pModernStatusDot = reinterpret_cast<CGUIStaticImage*>(m_pManager->CreateStaticImage(m_pModernCanvas));
+    m_pModernStatusDot->LoadFromFile(CORE_MTA_MODERN_STATUS_DOT);
+    m_pModernStatusDot->SetSize(CVector2D(23.0f, 23.0f) * s, false);
+    m_pModernStatusDot->SetZOrderingEnabled(false);
+    m_pModernStatusDot->SetVisible(false);
+    m_pModernStatus = CreateModernLabel(" ");
+    m_pModernStatus->SetVisible(false);
+
+    // Bottom bar, in design order. HOST GAME and MAP EDITOR need the local server, like the classic menu.
+    auto addItem = [this](unsigned char menuType, CGUIElement* pElement, bool bRightSide)
+    {
+        pElement->SetAlpha(MODERN_ITEM_ALPHA);
+        pElement->SetClickHandler(GUI_CALLBACK_MOUSE(&CMainMenu::OnModernItemClick, this));
+        pElement->SetMouseEnterHandler(GUI_CALLBACK(&CMainMenu::OnModernItemEnter, this));
+        pElement->SetMouseLeaveHandler(GUI_CALLBACK(&CMainMenu::OnModernItemLeave, this));
+        m_modernItems.push_back({menuType, pElement, bRightSide, MODERN_ITEM_ALPHA, MODERN_ITEM_ALPHA});
+    };
+    auto addImage = [&](unsigned char menuType, const char* szFilename, bool bRightSide) { addItem(menuType, CreateModernItemImage(szFilename), bRightSide); };
+
+    CGUIStaticImage* pGear = reinterpret_cast<CGUIStaticImage*>(m_pManager->CreateStaticImage(m_pModernCanvas));
+    pGear->LoadFromFile(CORE_MTA_MODERN_GEAR);
+    pGear->SetSize(CVector2D(32.0f, 32.0f) * s, false);
+    pGear->SetZOrderingEnabled(false);
+    addItem(MENU_ITEM_SETTINGS, pGear, false);
+
+    // Only shown in game (see LayoutModernItems), as the first item
+    addImage(MENU_ITEM_DISCONNECT, "menu_disconnect.png", false);
+    // RECONNECT (left click reconnects, right click opens quick connect). Only en_US has this image so far,
+    // so other languages keep their translated "quick connect" image until they get one.
+    addItem(MENU_ITEM_QUICK_CONNECT, CreateModernItemImage("menu_reconnect.png", "menu_quick_connect.png"), false);
+    addImage(MENU_ITEM_BROWSE_SERVERS, "menu_browse_servers.png", false);
+    if (DirectoryExists(CalcMTASAPath("server")))
+    {
+        addImage(MENU_ITEM_HOST_GAME, "menu_host_game.png", false);
+        addImage(MENU_ITEM_MAP_EDITOR, "menu_map_editor.png", false);
+    }
+    addImage(MENU_ITEM_ABOUT, "menu_about.png", true);
+    addImage(MENU_ITEM_QUIT, "menu_quit.png", true);
+
+    LayoutModernItems();
+}
+
+void CMainMenu::LayoutModernItems()
+{
+    if (!m_pModernCanvas)
+        return;
+
+    const float s = m_fModernScale;
+    // Items are measured and placed in a row (not at fixed design positions) so longer translations still fit
+    const float fGap = 24.0f * s;
+    const float fRowTop = m_ScreenSize.fY - 124.0f * s;            // the bar sits at y=956 of 1080 in the design
+    const float fRowHeight = 34.0f * MODERN_ITEM_IMAGE_SCALE * s;  // height of the menu_*.png images
+
+    auto place = [&](SModernItem& item, float fX)
+    {
+        const CVector2D vecSize = item.pElement->GetSize(false);
+        item.pElement->SetPosition(CVector2D(fX, fRowTop + (fRowHeight - vecSize.fY) * 0.5f), false);
+        return vecSize.fX;
+    };
+
+    float fLeft = 73.0f * s;
+    for (SModernItem& item : m_modernItems)
+    {
+        const bool bVisible = item.menuType != MENU_ITEM_DISCONNECT || m_bIsIngame;
+        item.pElement->SetVisible(bVisible);
+        if (!bVisible || item.bRightSide)
+            continue;
+
+        fLeft += place(item, fLeft);
+        // The settings icon has a wider gap in the design (73 + 32 -> 145)
+        fLeft += item.menuType == MENU_ITEM_SETTINGS ? 40.0f * s : fGap;
+    }
+
+    float fRight = m_ScreenSize.fX - 57.0f * s;
+    for (auto it = m_modernItems.rbegin(); it != m_modernItems.rend(); ++it)
+    {
+        if (!it->bRightSide)
+            continue;
+        fRight -= it->pElement->GetSize(false).fX;
+        place(*it, fRight);
+        fRight -= fGap;
+    }
+}
+
+void CMainMenu::UpdateModernItems(unsigned long ulTimePassed)
+{
+    // DISCONNECT is only shown in game. SetIsIngame re-lays out the bar, but keep it in sync here too so
+    // the bar can't be left in the wrong state by any other path.
+    for (const SModernItem& item : m_modernItems)
+    {
+        if (item.menuType == MENU_ITEM_DISCONNECT && item.pElement->IsVisible() != m_bIsIngame)
+        {
+            LayoutModernItems();
+            break;
+        }
+    }
+
+    const float fStep = (ulTimePassed / MODERN_HOVER_FADE_MS) * (MODERN_ITEM_HOVER_ALPHA - MODERN_ITEM_ALPHA);
+    for (SModernItem& item : m_modernItems)
+    {
+        if (item.fAlpha == item.fTargetAlpha)
+            continue;
+        if (item.fAlpha < item.fTargetAlpha)
+            item.fAlpha = std::min(item.fTargetAlpha, item.fAlpha + fStep);
+        else
+            item.fAlpha = std::max(item.fTargetAlpha, item.fAlpha - fStep);
+        item.pElement->SetAlpha(item.fAlpha);
+    }
+}
+
+// GUI widgets inherit CGUIElement twice (through their interface, e.g. CGUILabel, and through
+// CGUIElement_Impl), and event callbacks pass the CGUIElement_Impl one. So a callback pointer can't be
+// compared with a stored widget pointer directly; compare the addresses of the whole objects instead.
+static const void* GetElementIdentity(CGUIElement* pElement)
+{
+    return pElement ? dynamic_cast<const void*>(pElement) : nullptr;
+}
+
+CMainMenu::SModernItem* CMainMenu::FindModernItem(CGUIElement* pElement)
+{
+    const void* pIdentity = GetElementIdentity(pElement);
+    for (SModernItem& item : m_modernItems)
+    {
+        if (GetElementIdentity(item.pElement) == pIdentity)
+            return &item;
+    }
+    return nullptr;
+}
+
+// "N players on M servers" from the master server list: one download when the menu first shows,
+// only while not connected. The server browser keeps doing its own refresh when it is opened.
+void CMainMenu::UpdateModernStatus()
+{
+    if (!m_pModernStatus || m_eModernStatus == EModernStatus::DONE || m_bIsIngame)
+        return;
+
+    CServerList* pList = m_ServerBrowser.GetInternetList();
+    if (m_eModernStatus == EModernStatus::NOT_STARTED)
+    {
+        // Wait for the network module, like the menu's Host Game path does
+        if (g_pCore->IsNetworkReady() && !m_ServerBrowser.IsVisible())
+        {
+            pList->Refresh();
+            m_eModernStatus = EModernStatus::FETCHING;
+        }
+        return;
+    }
+
+    // While the browser is open it advances the list itself
+    const bool bDone = m_ServerBrowser.IsVisible() ? !pList->IsMasterListPending() : pList->PulseMasterListOnly();
+    if (!bDone)
+        return;
+    m_eModernStatus = EModernStatus::DONE;
+
+    unsigned int uiPlayers = 0, uiServers = 0;
+    pList->GetPlayerTotals(uiPlayers, uiServers);
+    if (uiServers == 0)
+        return;
+
+    // Same translated words as the server browser status line
+    const SString strText("%u %s %s %u %s", uiPlayers, *SString(_tn("player", "players", uiPlayers)), *SString(_("on")), uiServers,
+                          *SString(_tn("server", "servers", uiServers)));
+    m_pModernStatus->SetText(strText);
+    m_pModernStatus->SetSize(CVector2D(m_pModernStatus->GetTextExtent() + 2.0f, m_pModernStatus->GetFontHeight() + 2.0f), false);
+
+    // Right-aligned like the design (text ends at x=1829, dot at x=1553 of 1920)
+    const float s = m_fModernScale;
+    const float fTextX = m_ScreenSize.fX - 91.0f * s - m_pModernStatus->GetSize(false).fX;
+    m_pModernStatus->SetPosition(CVector2D(fTextX, 95.0f * s), false);
+    m_pModernStatusDot->SetPosition(CVector2D(fTextX - 32.0f * s, 95.0f * s), false);
+    m_pModernStatus->SetVisible(true);
+    m_pModernStatusDot->SetVisible(true);
+}
+
+bool CMainMenu::OnModernItemClick(CGUIMouseEventArgs Args)
+{
+    if (SModernItem* pItem = FindModernItem(Args.pWindow))
+        return HandleMenuItemClick(pItem->menuType, pItem->pElement, Args.button);
+    return true;
+}
+
+bool CMainMenu::OnModernItemEnter(CGUIElement* pElement)
+{
+    if (SModernItem* pItem = FindModernItem(pElement))
+        pItem->fTargetAlpha = MODERN_ITEM_HOVER_ALPHA;
+    return true;
+}
+
+bool CMainMenu::OnModernItemLeave(CGUIElement* pElement)
+{
+    if (SModernItem* pItem = FindModernItem(pElement))
+        pItem->fTargetAlpha = MODERN_ITEM_ALPHA;
+    return true;
+}
+
+void CMainMenu::DestroyModernLayout()
+{
+    m_modernItems.clear();
+    m_pModernTitle = nullptr;
+    m_pModernSubtitle = nullptr;
+
+    // Elements first, then the fonts they use
+    if (m_pModernCanvas)
+    {
+        m_pManager->DestroyElementRecursive(m_pModernCanvas);
+        m_pModernCanvas = nullptr;
+    }
+    SAFE_DELETE(m_pModernSmallFont);
 }
 
 sMenuItem* CMainMenu::CreateItem(unsigned char menuType, const char* szFilename, CVector2D vecRelPosition)
