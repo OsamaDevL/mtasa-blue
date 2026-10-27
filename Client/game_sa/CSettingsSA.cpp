@@ -1002,16 +1002,24 @@ void CSettingsSA::SetValidVideoMode()
 // CSettingsSA::OnSelectDevice
 //
 // return 0 for single adapter
-// return 1 for multi adapter hide dialog
-// return 2 for multi adapter show dialog
+// return 1 for multi adapter show GTA's dialog
+// return 2 for multi adapter hide GTA's dialog
+// return 3 to quit (the player cancelled MTA's monitor selection dialog)
 //
 //////////////////////////////////////////////////////////////////////////////////////////
 int CSettingsSA::OnSelectDevice()
 {
     if (GetNumAdapters() > 1 && g_pCore->GetDeviceSelectionEnabled())
     {
-        // Show device selection
-        return 1;
+        // Show MTA's monitor selection dialog instead of GTA's. It saves the chosen monitor, so
+        // SetValidVideoMode below starts on it.
+        int iAdapter = g_pCore->SelectMonitorOnStartup();
+        if (iAdapter == -1)
+            return 3;  // Cancelled: quit, as GTA's dialog does
+
+        // If MTA's dialog couldn't be shown, fall back to GTA's rather than block startup
+        if (iAdapter < 0)
+            return 1;
     }
 
     SetValidVideoMode();
@@ -1043,9 +1051,14 @@ __declspec(noinline) int OnMY_SelectDevice()
 // Hook info
 #define HOOKPOS_SelectDevice  0x0746219
 #define HOOKSIZE_SelectDevice 6
+// RETURN_SelectDeviceCancel is where psSelectDevice goes when GTA's dialog is cancelled
+// (DialogBoxParamA returned 0): it returns FALSE and the game quits. Nothing is pushed between
+// the hook and that DialogBoxParamA call (stdcall), so the stack here is the same as there.
 DWORD                         RETURN_SelectDeviceSingle = 0x0746273;
 DWORD                         RETURN_SelectDeviceMultiHide = 0x074622C;
 DWORD                         RETURN_SelectDeviceMultiShow = 0x0746227;
+DWORD                         RETURN_SelectDeviceCancel = 0x07463D4;
+DWORD                         dwSelectDeviceResult = 0;
 static void __declspec(naked) HOOK_SelectDevice()
 {
     MTA_VERIFY_HOOK_LOCAL_SIZE;
@@ -1055,11 +1068,14 @@ static void __declspec(naked) HOOK_SelectDevice()
     {
         pushad
         call    OnMY_SelectDevice
-        cmp     eax, 1
+        mov     dwSelectDeviceResult, eax
         popad
 
+        cmp     dwSelectDeviceResult, 1
         jl      single
         jz      multishow
+        cmp     dwSelectDeviceResult, 3
+        jz      cancel
 
         // multhide
         mov     eax, 1
@@ -1070,6 +1086,9 @@ static void __declspec(naked) HOOK_SelectDevice()
 
         single:
         jmp     RETURN_SelectDeviceSingle
+
+        cancel:
+        jmp     RETURN_SelectDeviceCancel
     }
     // clang-format on
 }

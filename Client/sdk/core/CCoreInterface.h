@@ -191,6 +191,10 @@ public:
     virtual void           SetLastConnectedServerName(const SString& strServerName) = 0;
 
     virtual void OnPostColorFilterRender() = 0;
+
+    // Shows MTA's monitor selection dialog at startup, instead of GTA's, and saves the choice.
+    // Returns the chosen adapter, -1 if the player cancelled, or -2 if it couldn't be shown.
+    virtual int SelectMonitorOnStartup() = 0;
 };
 
 class CClientTime

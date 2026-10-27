@@ -299,6 +299,8 @@ public:
 
     void OnPostColorFilterRender() override;
 
+    int SelectMonitorOnStartup() override;
+
 private:
     void ApplyCoreInitSettings();
 

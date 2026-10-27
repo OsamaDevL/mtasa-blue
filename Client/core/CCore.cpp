@@ -32,6 +32,8 @@
 #include "CSteamClient.h"
 #include "CCrashDumpWriter.h"
 #include "FastFailCrashHandler/WerCrashHandler.h"
+#include "Graphics/CMonitorSelectionDialog.h"
+#include "resource.h"
 
 using SharedUtil::CalcMTASAPath;
 using namespace std;
@@ -2425,9 +2427,97 @@ bool CCore::GetRequiredDisplayResolution(int& iOutWidth, int& iOutHeight, int& i
     return GetVideoModeManager()->GetRequiredDisplayResolution(iOutWidth, iOutHeight, iOutColorBits, iOutAdapterIndex);
 }
 
+// Called by GTA's device selection hook (CSettingsSA::OnSelectDevice) before the game starts on a
+// monitor. "device-selection-disabled" is set when the player picked a monitor in Settings > Video
+// instead of "Ask on startup". If that monitor isn't connected any more, ask anyway rather than
+// silently starting on another one.
 bool CCore::GetDeviceSelectionEnabled()
 {
-    return GetApplicationSettingInt("device-selection-disabled") ? false : true;
+    if (!GetApplicationSettingInt("device-selection-disabled"))
+        return true;
+
+    return GetVideoModeManager()->IsSavedMonitorMissing();
+}
+
+// Called by GTA's device selection hook when the player should choose a monitor (see
+// GetDeviceSelectionEnabled). Shows MTA's dialog instead of GTA's and saves the choice in
+// display_monitor, which CSettingsSA::SetValidVideoMode then starts on.
+// Returns the chosen adapter, -1 if the player cancelled, or -2 if the dialog couldn't be shown
+// (the caller then falls back to GTA's own dialog).
+int CCore::SelectMonitorOnStartup()
+{
+    const std::vector<SAdapterMonitor> monitors = GetVideoModeManager()->GetMonitors();
+    if (monitors.size() < 2)
+        return -2;
+
+    // Preselect the monitor used last time, or else the primary one
+    SString strSavedMonitor;
+    CVARS_GET("display_monitor", strSavedMonitor);
+    int iPreselect = -1;
+    int iPrimary = 0;
+
+    std::vector<SMonitorDialogEntry> entries;
+    for (size_t i = 0; i < monitors.size(); i++)
+    {
+        const SAdapterMonitor& monitor = monitors[i];
+        SString                strDetails("%d x %d", monitor.iWidth, monitor.iHeight);
+        if (monitor.bPrimary)
+        {
+            strDetails += SString(", %s", *_("primary"));
+            iPrimary = static_cast<int>(i);
+        }
+        if (iPreselect < 0 && !strSavedMonitor.empty() && monitor.strDeviceName.CompareI(strSavedMonitor))
+            iPreselect = static_cast<int>(i);
+
+        SMonitorDialogEntry entry;
+        entry.strName = FromUTF8(monitor.strName);
+        entry.strDetails = FromUTF8(strDetails);
+        entry.rcDesktop = monitor.rcDesktop;
+        entries.push_back(entry);
+    }
+    if (iPreselect < 0)
+        iPreselect = iPrimary;
+
+    SMonitorDialogText text;
+    text.strTitle = FromUTF8(_("MTA: San Andreas - Select monitor"));
+    text.strPrompt = FromUTF8(_("Choose the monitor to play on:"));
+    text.strRemember = FromUTF8(_("Remember my choice (you can change it in Settings > Video)"));
+    text.strOk = FromUTF8(_("Play"));
+    text.strCancel = FromUTF8(_("Quit"));
+
+    // MTA's icon from core.dll's resources
+    HMODULE hCoreModule = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(&GetVideoModeManager),
+                       &hCoreModule);
+    HICON hIcon = hCoreModule ? LoadIcon(hCoreModule, MAKEINTRESOURCE(IDI_ICON1)) : nullptr;
+
+    // "Remember" starts ticked if the player had already chosen not to be asked. Then the dialog is
+    // only showing because their monitor isn't connected (e.g. an undocked laptop), and picking
+    // another one shouldn't quietly turn the question back on.
+    const bool bWasRemembered = GetApplicationSettingInt("device-selection-disabled") != 0;
+
+    int  iChoice = 0;
+    bool bRemember = false;
+    switch (ShowMonitorSelectionDialog(entries, iPreselect, bWasRemembered, text, hIcon, iChoice, bRemember))
+    {
+        case EMonitorDialogResult::Cancelled:
+            return -1;
+        case EMonitorDialogResult::Failed:
+            return -2;
+        case EMonitorDialogResult::Chosen:
+            break;
+    }
+
+    // "Remember my choice" skips the dialog from now on, like picking the monitor in Settings > Video
+    CVARS_SET("display_monitor", monitors[iChoice].strDeviceName);
+    SetApplicationSettingInt("device-selection-disabled", bRemember ? 1 : 0);
+
+    // The setting above is in the registry and saved at once. Write the config file now too, so a
+    // crash before the next config save can't leave "remembered" pointing at the old monitor.
+    if (m_pConfigFile)
+        m_pConfigFile->Write();
+
+    return monitors[iChoice].iAdapter;
 }
 
 void CCore::NotifyRenderingGrass(bool bIsRenderingGrass)
