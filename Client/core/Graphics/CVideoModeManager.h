@@ -17,6 +17,18 @@ enum
     VIDEO_MODE_WINDOWED = 0,
 };
 
+// A monitor the game can start on, as listed in Settings > Video and the monitor selection dialog
+struct SAdapterMonitor
+{
+    int     iAdapter;       // Direct3D adapter index, the same as GTA's
+    SString strDeviceName;  // e.g. \\.\DISPLAY2
+    SString strName;        // Friendly name ("DELL U2720Q"), or the adapter's description if there is none
+    RECT    rcDesktop;      // Position in the Windows desktop layout
+    int     iWidth;         // Current desktop resolution
+    int     iHeight;
+    bool    bPrimary;
+};
+
 class CVideoModeManagerInterface
 {
 public:
@@ -38,6 +50,18 @@ public:
     virtual int  GetFullScreenStyle() = 0;
     virtual bool IsDisplayModeWindowed() = 0;
     virtual bool IsDisplayModeFullScreenWindow() = 0;
+
+    // Monitor ("adapter") the game starts on. It is saved by name in the display_monitor cvar
+    // (e.g. \\.\DISPLAY2) as well as by index in display_resolution, because the index of a
+    // monitor can change when monitors are plugged in or out.
+    virtual int     GetAdapterCount() = 0;
+    virtual SString GetAdapterDeviceName(int iAdapter) = 0;
+    virtual int     GetCurrentAdapter() = 0;
+    virtual int     GetNextAdapter() = 0;
+    virtual bool    SetNextAdapter(int iAdapter) = 0;  // Returns true if a restart is needed
+    virtual bool    IsSavedMonitorMissing() = 0;
+
+    virtual std::vector<SAdapterMonitor> GetMonitors() = 0;
 };
 
 CVideoModeManagerInterface* GetVideoModeManager();

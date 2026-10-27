@@ -359,6 +359,7 @@ void CClientVariables::LoadDefaults()
     DEFAULT("display_fullscreen_style", 0);                                 // 0-standard 1-borderless 2-borderless keep res 3-borderless stretch
     DEFAULT("display_windowed", 0);                                         // 0-off 1-on
     DEFAULT("multimon_fullscreen_minimize", 1);                             // 0-off 1-on
+    DEFAULT("display_monitor", _S(""));                                     // e.g. \\.\DISPLAY2, see CVideoModeManager
     DEFAULT("borderless_gamma_power", 0.95f);                               // Gamma exponent applied to windowed gamma ramp (1.0 = unchanged)
     DEFAULT("borderless_brightness_scale", 1.03f);                          // Brightness multiplier for windowed gamma ramp (1.0 = unchanged)
     DEFAULT("borderless_contrast_scale", 1.0f);                             // Contrast multiplier for borderless presentation (1.0 = unchanged)
