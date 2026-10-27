@@ -14,6 +14,7 @@
 #include <core/D3DProxyDeviceGuids.h>
 #include <game/CGame.h>
 #include <game/CSettings.h>
+#include <utils/FriendlyMonitorNames.h>
 
 ///////////////////////////////////////////////////////////////
 //
@@ -44,6 +45,17 @@ public:
     virtual int  GetFullScreenStyle() override { return m_iCurrentFullscreenStyle; }
     virtual bool IsDisplayModeWindowed() override;
     virtual bool IsDisplayModeFullScreenWindow() override;
+
+    // Monitor choice
+    virtual int     GetAdapterCount() override;
+    virtual SString GetAdapterDeviceName(int iAdapter) override;
+    virtual int     GetCurrentAdapter() override { return m_iCurrentAdapter; }
+    virtual int     GetNextAdapter() override { return m_iNextAdapter; }
+    virtual bool    SetNextAdapter(int iAdapter) override;
+    virtual bool    IsSavedMonitorMissing() override;
+    int             FindAdapterByDeviceName(const SString& strDeviceName);
+
+    virtual std::vector<SAdapterMonitor> GetMonitors() override;
 
     bool    IsDisplayModeFullScreen();
     bool    GetCurrentAdapterRect(LPRECT pOutRect);
@@ -500,6 +512,12 @@ void CVideoModeManager::LoadCVars()
         CVARS_SET("display_resolution", MakeResolutionString(info.width, info.height, info.depth, m_iCurrentAdapter));
     }
 
+    // Remember the monitor by name too, including one picked in GTA's device selection dialog,
+    // so the next start finds it even if the monitor order has changed
+    SString strMonitor = GetAdapterDeviceName(m_iCurrentAdapter);
+    if (!strMonitor.empty())
+        CVARS_SET("display_monitor", strMonitor);
+
     m_hCurrentMonitor = CProxyDirect3D9::StaticGetAdapterMonitor(m_iCurrentAdapter);
 }
 
@@ -522,6 +540,10 @@ void CVideoModeManager::SaveCVars()
             CVARS_SET("display_resolution", MakeResolutionString(info.width, info.height, info.depth, static_cast<UINT>(m_iNextAdapter)));
         }
     }
+
+    SString strMonitor = GetAdapterDeviceName(m_iNextAdapter);
+    if (!strMonitor.empty())
+        CVARS_SET("display_monitor", strMonitor);
 
     CVARS_SET("display_windowed", m_bNextWindowed);
     CVARS_SET("display_fullscreen_style", m_iNextFullscreenStyle);
@@ -751,7 +773,154 @@ bool CVideoModeManager::GetRequiredDisplayResolution(int& iOutWidth, int& iOutHe
         }
     }
 
+    // The saved monitor name wins over the saved index, which can point at another monitor after
+    // monitors were plugged in or out. If the monitor isn't connected, CCore::GetDeviceSelectionEnabled
+    // shows GTA's device selection dialog instead of starting on whichever monitor has that index.
+    SString strMonitor;
+    CVARS_GET("display_monitor", strMonitor);
+    if (!strMonitor.empty())
+    {
+        int iAdapter = FindAdapterByDeviceName(strMonitor);
+        if (iAdapter >= 0)
+            iOutAdapterIndex = iAdapter;
+    }
+
     return (iOutWidth > 0) && (iOutHeight > 0) && (iOutColorBits == 16 || iOutColorBits == 32);
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::GetAdapterCount
+//
+// Number of monitors Direct3D can use. Valid from GTA's device selection on (the Direct3D object
+// is created before it), so it can be used while choosing the monitor to start on.
+//
+///////////////////////////////////////////////////////////////
+int CVideoModeManager::GetAdapterCount()
+{
+    IDirect3D9* pDirect3D = CProxyDirect3D9::StaticGetDirect3D();
+    return pDirect3D ? static_cast<int>(pDirect3D->GetAdapterCount()) : 0;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::GetAdapterDeviceName
+//
+// Display device name of a monitor, e.g. \\.\DISPLAY2. Empty if unknown.
+//
+///////////////////////////////////////////////////////////////
+SString CVideoModeManager::GetAdapterDeviceName(int iAdapter)
+{
+    IDirect3D9* pDirect3D = CProxyDirect3D9::StaticGetDirect3D();
+    if (!pDirect3D || iAdapter < 0 || iAdapter >= static_cast<int>(pDirect3D->GetAdapterCount()))
+        return "";
+
+    D3DADAPTER_IDENTIFIER9 identifier{};
+    if (FAILED(pDirect3D->GetAdapterIdentifier(static_cast<UINT>(iAdapter), 0, &identifier)))
+        return "";
+
+    return identifier.DeviceName;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::FindAdapterByDeviceName
+//
+// Returns the index of the monitor with this display device name, or -1
+//
+///////////////////////////////////////////////////////////////
+int CVideoModeManager::FindAdapterByDeviceName(const SString& strDeviceName)
+{
+    int iCount = GetAdapterCount();
+    for (int i = 0; i < iCount; i++)
+    {
+        if (GetAdapterDeviceName(i).CompareI(strDeviceName))
+            return i;
+    }
+    return -1;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::IsSavedMonitorMissing
+//
+// True if a monitor was saved by name but isn't connected now. Only matters with several
+// monitors: with one, there is nothing to choose.
+//
+///////////////////////////////////////////////////////////////
+bool CVideoModeManager::IsSavedMonitorMissing()
+{
+    SString strMonitor;
+    CVARS_GET("display_monitor", strMonitor);
+    if (strMonitor.empty() || GetAdapterCount() <= 1)
+        return false;
+
+    return FindAdapterByDeviceName(strMonitor) < 0;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::GetMonitors
+//
+// Every monitor the game can start on, in Direct3D adapter order
+//
+///////////////////////////////////////////////////////////////
+std::vector<SAdapterMonitor> CVideoModeManager::GetMonitors()
+{
+    std::vector<SAdapterMonitor> monitors;
+
+    IDirect3D9* pDirect3D = CProxyDirect3D9::StaticGetDirect3D();
+    if (!pDirect3D)
+        return monitors;
+
+    const auto friendlyNames = GetFriendlyMonitorNamesForDevicePaths();
+    const UINT uiCount = pDirect3D->GetAdapterCount();
+    for (UINT i = 0; i < uiCount; i++)
+    {
+        SAdapterMonitor monitor{};
+        monitor.iAdapter = static_cast<int>(i);
+
+        D3DADAPTER_IDENTIFIER9 identifier{};
+        pDirect3D->GetAdapterIdentifier(i, 0, &identifier);
+        monitor.strDeviceName = identifier.DeviceName;
+        auto it = friendlyNames.find(identifier.DeviceName);
+        monitor.strName = it != friendlyNames.end() ? SString(it->second) : SStringX(identifier.Description);
+
+        MONITORINFO monitorInfo{};
+        monitorInfo.cbSize = sizeof(monitorInfo);
+        if (GetMonitorInfo(pDirect3D->GetAdapterMonitor(i), &monitorInfo))
+        {
+            monitor.rcDesktop = monitorInfo.rcMonitor;
+            monitor.bPrimary = (monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        }
+
+        D3DDISPLAYMODE displayMode{};
+        if (SUCCEEDED(pDirect3D->GetAdapterDisplayMode(i, &displayMode)))
+        {
+            monitor.iWidth = static_cast<int>(displayMode.Width);
+            monitor.iHeight = static_cast<int>(displayMode.Height);
+        }
+
+        monitors.push_back(monitor);
+    }
+    return monitors;
+}
+
+///////////////////////////////////////////////////////////////
+//
+// CVideoModeManager::SetNextAdapter
+//
+// Monitor to start on next time (Settings > Video). Saved by SaveCVars.
+// Returns true if this needs a restart.
+//
+///////////////////////////////////////////////////////////////
+bool CVideoModeManager::SetNextAdapter(int iAdapter)
+{
+    if (iAdapter < 0 || iAdapter >= GetAdapterCount())
+        return false;
+
+    m_iNextAdapter = iAdapter;
+    return m_iNextAdapter != m_iCurrentAdapter;
 }
 
 ///////////////////////////////////////////////////////////////

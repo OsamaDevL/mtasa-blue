@@ -160,7 +160,8 @@ protected:
     CGUIComboBox*  m_pComboAspectRatio;
     CGUILabel*     m_pAspectRatioLabel;
     CGUICheckBox*  m_pCheckBoxVolumetricShadows;
-    CGUICheckBox*  m_pCheckBoxDeviceSelectionDialog;
+    CGUILabel*     m_pMonitorLabel;
+    CGUIComboBox*  m_pComboMonitor;  // "Ask on startup" (data -1) or a monitor (data = adapter index)
     CGUICheckBox*  m_pCheckBoxShowUnsafeResolutions;
     CGUICheckBox*  m_pCheckBoxAllowScreenUpload;
     CGUICheckBox*  m_pCheckBoxAllowExternalSounds;

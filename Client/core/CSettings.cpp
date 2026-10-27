@@ -218,7 +218,8 @@ void CSettings::ResetGuiPointers()
     m_pComboAspectRatio = NULL;
     m_pAspectRatioLabel = NULL;
     m_pCheckBoxVolumetricShadows = NULL;
-    m_pCheckBoxDeviceSelectionDialog = NULL;
+    m_pMonitorLabel = NULL;
+    m_pComboMonitor = NULL;
     m_pCheckBoxShowUnsafeResolutions = NULL;
     m_pCheckBoxAllowScreenUpload = NULL;
     m_pCheckBoxAllowExternalSounds = NULL;
@@ -1439,17 +1440,43 @@ void CSettings::CreateGUI()
     }
 #endif
 
-    m_pCheckBoxDeviceSelectionDialog = reinterpret_cast<CGUICheckBox*>(pManager->CreateCheckBox(pTabVideo, _("Enable Device Selection Dialog"), true));
-    m_pCheckBoxDeviceSelectionDialog->SetPosition(CVector2D(vecTemp.fX + 245.0f, fPosY + 50.0f));
-    m_pCheckBoxDeviceSelectionDialog->AutoSize(NULL, 20.0f);
+    // Monitor to start on. Replaces the "Enable Device Selection Dialog" checkbox: "Ask on startup" keeps
+    // GTA's device selection dialog, picking a monitor skips it (see CCore::GetDeviceSelectionEnabled).
+    // Item 0 is "Ask on startup", item i + 1 is monitor (Direct3D adapter) i.
+    m_pMonitorLabel = reinterpret_cast<CGUILabel*>(pManager->CreateLabel(pTabVideo, _("Monitor:")));
+    m_pMonitorLabel->SetPosition(CVector2D(vecTemp.fX + 245.0f, fPosY + 51.0f));
+    m_pMonitorLabel->AutoSize();
+    CVector2D vecMonitorLabelSize;
+    m_pMonitorLabel->GetSize(vecMonitorLabelSize);
+
+    m_pComboMonitor = reinterpret_cast<CGUIComboBox*>(pManager->CreateComboBox(pTabVideo, ""));
+    m_pComboMonitor->SetPosition(CVector2D(vecTemp.fX + 245.0f + vecMonitorLabelSize.fX + 5.0f, fPosY + 49.0f));
+    m_pComboMonitor->SetSize(CVector2D(200.0f, 110.0f));
+    m_pComboMonitor->SetReadOnly(true);
+    m_pComboMonitor->AddItem(_("Ask on startup"))->SetData((void*)-1);
+    // "1: DELL U2720Q (primary)". The number keeps identical monitors apart and matches the
+    // numbers in the monitor selection dialog.
+    for (const SAdapterMonitor& monitor : GetVideoModeManager()->GetMonitors())
+    {
+        SString strName = monitor.strName;
+        if (monitor.bPrimary)
+            strName += SString(" (%s)", *_("primary"));
+        m_pComboMonitor->AddItem(SString("%d: %s", monitor.iAdapter + 1, *strName))->SetData((void*)(INT_PTR)monitor.iAdapter);
+    }
 
 #ifndef SHOWALLSETTINGS
     if (!GetVideoModeManager()->IsMultiMonitor())
     {
-        m_pCheckBoxDeviceSelectionDialog->SetVisible(false);
+        m_pMonitorLabel->SetVisible(false);
+        m_pComboMonitor->SetVisible(false);
         fPosY -= 20.0f;
     }
+    else
 #endif
+    {
+        // The combo box is a little taller than a checkbox row
+        fPosY += 6.0f;
+    }
 
     m_pCheckBoxShowUnsafeResolutions = reinterpret_cast<CGUICheckBox*>(pManager->CreateCheckBox(pTabVideo, _("Show unsafe resolutions"), true));
     m_pCheckBoxShowUnsafeResolutions->SetPosition(CVector2D(vecTemp.fX + 245.0f, fPosY + 70.0f));
@@ -2302,9 +2329,15 @@ void CSettings::UpdateVideoTab()
     m_pCheckBoxVolumetricShadows->SetSelected(bVolumetricShadowsEnabled);
     m_pCheckBoxVolumetricShadows->SetEnabled(FxQuality != 0);
 
-    // Device selection dialog
-    bool bDeviceSelectionDialogEnabled = GetApplicationSettingInt("device-selection-disabled") ? false : true;
-    m_pCheckBoxDeviceSelectionDialog->SetSelected(bDeviceSelectionDialogEnabled);
+    // Monitor: "Ask on startup" (item 0) unless a monitor was picked here
+    int iMonitorItem = 0;
+    if (GetApplicationSettingInt("device-selection-disabled"))
+    {
+        int iAdapter = GetVideoModeManager()->GetNextAdapter();
+        if (iAdapter >= 0 && iAdapter + 1 < static_cast<int>(m_pComboMonitor->GetItemCount()))
+            iMonitorItem = iAdapter + 1;
+    }
+    m_pComboMonitor->SetSelectedItemByIndex(iMonitorItem);
 
     // Show unsafe resolutions
     bool bShowUnsafeResolutions;
@@ -4398,8 +4431,23 @@ void CSettings::SaveData()
         SetPriorityClass(GetCurrentProcess(), PriorityClassList[CVARS_GET_VALUE<int>("process_priority") % 3]);
     }
 
+    // Monitor. Must be set before SetVideoMode, which saves it with the resolution.
+    // Only with several monitors (when the option is shown), so a single-monitor setup keeps its setting.
+    bool bIsMonitorChanged = false;
+    if (GetVideoModeManager()->IsMultiMonitor())
+    {
+        if (CGUIListItem* pSelected = m_pComboMonitor->GetSelectedItem())
+        {
+            int iAdapter = static_cast<int>(reinterpret_cast<INT_PTR>(pSelected->GetData()));
+            SetApplicationSettingInt("device-selection-disabled", iAdapter >= 0 ? 1 : 0);
+            if (iAdapter >= 0)
+                bIsMonitorChanged = GetVideoModeManager()->SetNextAdapter(iAdapter);
+        }
+    }
+
     // change
     bool bIsVideoModeChanged = GetVideoModeManager()->SetVideoMode(iNextVidMode, bNextWindowed, bNextFSMinimize, iNextFullscreenStyle);
+    bIsVideoModeChanged |= bIsMonitorChanged;
     bool bIsAntiAliasingChanged = gameSettings->GetAntiAliasing() != iAntiAliasing;
     bool bIsCustomizedSAFilesChanged = bCustomizedSAFilesWasEnabled != bCustomizedSAFilesEnabled;
 
@@ -4471,10 +4519,6 @@ void CSettings::SaveData()
     bool bVolumetricShadowsEnabled = m_pCheckBoxVolumetricShadows->GetSelected();
     CVARS_SET("volumetric_shadows", bVolumetricShadowsEnabled);
     gameSettings->SetVolumetricShadowsEnabled(bVolumetricShadowsEnabled);
-
-    // Device selection dialog
-    bool bDeviceSelectionDialogEnabled = m_pCheckBoxDeviceSelectionDialog->GetSelected();
-    SetApplicationSettingInt("device-selection-disabled", bDeviceSelectionDialogEnabled ? 0 : 1);
 
     // Show unsafe resolutions
     bool bShowUnsafeResolutions = m_pCheckBoxShowUnsafeResolutions->GetSelected();
